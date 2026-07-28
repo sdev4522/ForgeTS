@@ -10,7 +10,12 @@
     "test": "bun test",
     "forge": "bun run bin/forge.ts"
   },
+  "bin": {
+    "forge": "./bin/forge.ts"
+  },
   "dependencies": {
+    "kysely": "^0.29.4",
+    "kysely-bun-sqlite": "^0.4.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

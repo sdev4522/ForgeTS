@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ForgeTS — Welcome</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/css/welcome.css">
 </head>
+
 <body>
   <div class="bg-grid"></div>
   <div class="bg-glow bg-glow-1"></div>
@@ -35,7 +39,7 @@
         Build <span class="gradient">blazing fast</span><br>web apps
       </h1>
       <p class="animate-in delay-3">
-        ForgeTS is a batteries-included TypeScript framework running on Bun.
+        {{ name }} ForgeTS is a batteries-included TypeScript framework running on Bun.
         Laravel's developer experience meets JavaScript's speed.
       </p>
     </section>
@@ -69,24 +73,30 @@
           <div class="code-filename">app/controllers/UserController.ts</div>
         </div>
         <div class="code-body">
-<span class="kw">import</span> { Controller, Get, Post } <span class="kw">from</span> <span class="str">'@forge/core'</span>;<br>
-<span class="kw">import type</span> { <span class="type">Request</span>, <span class="type">ForgeResponse</span> } <span class="kw">from</span> <span class="str">'@forge/core'</span>;<br>
-<br>
-<span class="dec">@Controller</span>(<span class="str">'/users'</span>)<br>
-<span class="kw">export class</span> <span class="type">UserController</span> {<br>
-<br>
-&nbsp;&nbsp;<span class="dec">@Get</span>(<span class="str">'/'</span>)<br>
-&nbsp;&nbsp;<span class="kw">async</span> <span class="fn">index</span>(req: <span class="type">Request</span>, res: <span class="type">ForgeResponse</span>) {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> users = <span class="kw">await</span> User.<span class="fn">all</span>();<br>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> res.<span class="fn">json</span>(users);<br>
-&nbsp;&nbsp;}<br>
-<br>
-&nbsp;&nbsp;<span class="dec">@Get</span>(<span class="str">'/:id'</span>)<br>
-&nbsp;&nbsp;<span class="kw">async</span> <span class="fn">show</span>(req: <span class="type">Request</span>, res: <span class="type">ForgeResponse</span>) {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> user = <span class="kw">await</span> User.<span class="fn">find</span>(req.params.id);<br>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> res.<span class="fn">json</span>(user);<br>
-&nbsp;&nbsp;}<br>
-}
+          <span class="kw">import</span> { Controller, Get, Post } <span class="kw">from</span> <span
+            class="str">'@forge/core'</span>;<br>
+          <span class="kw">import type</span> { <span class="type">Request</span>, <span
+            class="type">ForgeResponse</span> } <span class="kw">from</span> <span class="str">'@forge/core'</span>;<br>
+          <br>
+          <span class="dec">@Controller</span>(<span class="str">'/users'</span>)<br>
+          <span class="kw">export class</span> <span class="type">UserController</span> {<br>
+          <br>
+          &nbsp;&nbsp;<span class="dec">@Get</span>(<span class="str">'/'</span>)<br>
+          &nbsp;&nbsp;<span class="kw">async</span> <span class="fn">index</span>(req: <span
+            class="type">Request</span>, res: <span class="type">ForgeResponse</span>) {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> users = <span class="kw">await</span> User.<span
+            class="fn">all</span>();<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> res.<span class="fn">json</span>(users);<br>
+          &nbsp;&nbsp;}<br>
+          <br>
+          &nbsp;&nbsp;<span class="dec">@Get</span>(<span class="str">'/:id'</span>)<br>
+          &nbsp;&nbsp;<span class="kw">async</span> <span class="fn">show</span>(req: <span class="type">Request</span>,
+          res: <span class="type">ForgeResponse</span>) {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> user = <span class="kw">await</span> User.<span
+            class="fn">find</span>(req.params.id);<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> res.<span class="fn">json</span>(user);<br>
+          &nbsp;&nbsp;}<br>
+          }
         </div>
       </div>
     </div>
@@ -121,7 +131,8 @@
       <div class="feature">
         <div class="feature-icon">🏗️</div>
         <h3>Laravel-Inspired DX</h3>
-        <p>Convention over configuration. Controllers, services, middleware, routes — everything where you'd expect it.</p>
+        <p>Convention over configuration. Controllers, services, middleware, routes — everything where you'd expect it.
+        </p>
       </div>
     </div>
 
@@ -158,8 +169,10 @@
 
     <!-- Footer -->
     <footer class="animate-in delay-5">
-      <p>ForgeTS v{{{ version }}} &nbsp;·&nbsp; Running on {{{ runtime }}} &nbsp;·&nbsp; TypeScript-First &nbsp;·&nbsp; Built with ⚡</p>
+      <p>ForgeTS v{{{ version }}} &nbsp;·&nbsp; Running on {{{ runtime }}} &nbsp;·&nbsp; TypeScript-First &nbsp;·&nbsp;
+        Built with ⚡</p>
     </footer>
   </div>
 </body>
+
 </html>

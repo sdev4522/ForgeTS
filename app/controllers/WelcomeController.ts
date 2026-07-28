@@ -9,8 +9,9 @@ import type { Request, ForgeResponse } from '../../packages/forge/src/index.js';
 
 @Controller('/')
 export class WelcomeController {
-  @Get('/')
+  @Get('/:name')
   async welcome(_req: Request, res: ForgeResponse) {
+    const name = _req.params.name || 'forge';
     const uptimeSeconds = process.uptime();
     const hours = Math.floor(uptimeSeconds / 3600);
     const minutes = Math.floor((uptimeSeconds % 3600) / 60);
@@ -22,6 +23,7 @@ export class WelcomeController {
         : `${seconds}s`;
 
     return res.view('welcome', {
+      name,
       version: '0.1.0',
       uptime,
       heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
