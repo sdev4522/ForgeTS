@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@forge/core": ["./packages/forge/src/index.ts"],
+      "@forge/database": ["./packages/forge/src/database/index.ts"],
+      "@app/*": ["./app/*"],
+      "@config/*": ["./config/*"],
+      "@database/*": ["./database/*"],
+      "@routes/*": ["./routes/*"],
+      "@tests/*": ["./tests/*"]
+    },
+    "baseUrl": ".",
+    "types": ["bun-types"]
+  },
+  "include": [
+    "app/**/*",
+    "config/**/*",
+    "database/**/*",
+    "routes/**/*",
+    "bootstrap/**/*",
+    "bin/**/*",
+    "tests/**/*",
+    "packages/**/*"
+  ],
+  "exclude": ["node_modules", "dist", "storage"]
+}

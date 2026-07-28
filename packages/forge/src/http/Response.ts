@@ -1,0 +1,211 @@
+// packages/forge/src/http/Response.ts
+// ─────────────────────────────────────────────────────────────────────
+// Unified HTTP Response builder.
+// Chainable, immutable-style API. Returns a Bun-native Response at the end.
+//
+// PERFORMANCE: No intermediate buffering. We build the final Response
+// object directly. Headers are stored in a plain object until finalized.
+// ─────────────────────────────────────────────────────────────────────
+
+import type { ViewEngine } from '../view/ViewEngine.js';
+
+export interface CookieOptions {
+  maxAge?: number;
+  domain?: string;
+  path?: string;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+}
+
+export class ForgeResponse {
+  private _status: number = 200;
+  private _headers: Record<string, string> = {};
+  private _body: BodyInit | null = null;
+  private _cookies: string[] = [];
+  private _viewEngine: ViewEngine | null;
+
+  constructor(viewEngine?: ViewEngine) {
+    this._viewEngine = viewEngine ?? null;
+  }
+
+  // ─── Status ───
+
+  /** Set the HTTP status code. Chainable. */
+  status(code: number): this {
+    this._status = code;
+    return this;
+  }
+
+  // ─── Headers ───
+
+  /** Set a response header. Chainable. */
+  header(name: string, value: string): this {
+    this._headers[name.toLowerCase()] = value;
+    return this;
+  }
+
+  // ─── Body Methods ───
+
+  /** Send a JSON response. */
+  json(data: unknown, status?: number): this {
+    if (status !== undefined) this._status = status;
+    this._headers['content-type'] = 'application/json; charset=utf-8';
+    this._body = JSON.stringify(data);
+    return this;
+  }
+
+  /** Send a plain text response. */
+  text(content: string, status?: number): this {
+    if (status !== undefined) this._status = status;
+    this._headers['content-type'] = 'text/plain; charset=utf-8';
+    this._body = content;
+    return this;
+  }
+
+  /** Send an HTML response. */
+  html(content: string, status?: number): this {
+    if (status !== undefined) this._status = status;
+    this._headers['content-type'] = 'text/html; charset=utf-8';
+    this._body = content;
+    return this;
+  }
+
+  /**
+   * Render a view template with data and send as HTML response.
+   * Templates live in `resources/views/`.
+   *
+   * @param template Template name (e.g., 'welcome' → resources/views/welcome.html)
+   * @param data Data to interpolate into the template
+   *
+   * @example
+   * ```ts
+   * return res.view('welcome', { title: 'Hello', uptime: '5m' });
+   * ```
+   */
+  view(template: string, data: Record<string, unknown> = {}, status?: number): this {
+    if (!this._viewEngine) {
+      throw new Error(
+        '[ForgeTS] ViewEngine not available. ' +
+          'This typically means res.view() was called on a manually-constructed ForgeResponse. ' +
+          'Use the response object passed to your controller method.',
+      );
+    }
+
+    const rendered = this._viewEngine.render(template, data);
+    return this.html(rendered, status);
+  }
+
+  // ─── Shortcut Status Responses ───
+
+  /** 201 Created with JSON body. */
+  created(data: unknown): this {
+    this._status = 201;
+    return this.json(data);
+  }
+
+  /** 204 No Content. */
+  noContent(): this {
+    this._status = 204;
+    this._body = null;
+    return this;
+  }
+
+  /** 404 Not Found. */
+  notFound(message: string = 'Not Found'): this {
+    this._status = 404;
+    return this.json({ error: message, statusCode: 404 });
+  }
+
+  /** 400 Bad Request. */
+  badRequest(message: string = 'Bad Request'): this {
+    this._status = 400;
+    return this.json({ error: message, statusCode: 400 });
+  }
+
+  /** 401 Unauthorized. */
+  unauthorized(message: string = 'Unauthorized'): this {
+    this._status = 401;
+    return this.json({ error: message, statusCode: 401 });
+  }
+
+  /** 403 Forbidden. */
+  forbidden(message: string = 'Forbidden'): this {
+    this._status = 403;
+    return this.json({ error: message, statusCode: 403 });
+  }
+
+  /** 500 Internal Server Error. */
+  serverError(message: string = 'Internal Server Error'): this {
+    this._status = 500;
+    return this.json({ error: message, statusCode: 500 });
+  }
+
+  // ─── Redirects ───
+
+  /** Redirect to a URL. Default status 302 (temporary). */
+  redirect(url: string, status: number = 302): this {
+    this._status = status;
+    this._headers['location'] = url;
+    this._body = null;
+    return this;
+  }
+
+  /** Permanent redirect (301). */
+  permanentRedirect(url: string): this {
+    return this.redirect(url, 301);
+  }
+
+  // ─── Cookies ───
+
+  /** Set a cookie. */
+  cookie(name: string, value: string, options: CookieOptions = {}): this {
+    let cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+    if (options.maxAge !== undefined) cookie += `; Max-Age=${options.maxAge}`;
+    if (options.domain) cookie += `; Domain=${options.domain}`;
+    if (options.path) cookie += `; Path=${options.path}`;
+    if (options.httpOnly) cookie += '; HttpOnly';
+    if (options.secure) cookie += '; Secure';
+    if (options.sameSite) cookie += `; SameSite=${options.sameSite}`;
+    this._cookies.push(cookie);
+    return this;
+  }
+
+  /** Clear a cookie. */
+  clearCookie(name: string, options: CookieOptions = {}): this {
+    return this.cookie(name, '', { ...options, maxAge: 0 });
+  }
+
+  // ─── Finalize ───
+
+  /**
+   * Convert to a native Web API Response object.
+   * This is called internally by the framework to send the response.
+   * @internal
+   */
+  toNativeResponse(): globalThis.Response {
+    const headers = new Headers(this._headers);
+
+    // Append Set-Cookie headers
+    for (const cookie of this._cookies) {
+      headers.append('set-cookie', cookie);
+    }
+
+    return new globalThis.Response(this._body, {
+      status: this._status,
+      headers,
+    });
+  }
+
+  // ─── Static Factory ───
+
+  /** Create a quick JSON response (shorthand for new ForgeResponse().json(data)). */
+  static json(data: unknown, status: number = 200): ForgeResponse {
+    return new ForgeResponse().json(data, status);
+  }
+
+  /** Create a quick text response. */
+  static text(content: string, status: number = 200): ForgeResponse {
+    return new ForgeResponse().text(content, status);
+  }
+}

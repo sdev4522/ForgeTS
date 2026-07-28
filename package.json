@@ -1,0 +1,20 @@
+{
+  "name": "forge-ts",
+  "version": "0.1.0",
+  "description": "A batteries-included, TypeScript-first web framework — Laravel DX for the JS ecosystem, built for speed.",
+  "type": "module",
+  "scripts": {
+    "serve": "bun run bin/serve.ts",
+    "dev": "bun --watch run bin/serve.ts",
+    "build": "tsc",
+    "test": "bun test",
+    "forge": "bun run bin/forge.ts"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  }
+}
