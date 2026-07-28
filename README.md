@@ -286,4 +286,4 @@ Ran 4 tests across 1 file. [133.00ms]
 
 ## 📄 License
 
-MIT License. Designed and built with ⚡ for high performance TypeScript development.
+Designed and built with ⚡ for high performance TypeScript development.
