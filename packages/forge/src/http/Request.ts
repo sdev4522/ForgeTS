@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type { ZodSchema, ZodError } from 'zod';
+import { Validator, ValidationError } from './Validator.js';
 
 export class ValidationException extends Error {
   public readonly errors: Record<string, string[]>;
@@ -158,17 +159,36 @@ export class Request {
   // ─── Validation ───
 
   /**
-   * Validate the request body against a Zod schema.
-   * Throws `ValidationException` if validation fails.
+   * Validate the request body against pipe-separated rules (or Zod schema).
+   * Throws `ValidationError` (422) if validation fails.
+   * Returns ONLY the validated fields.
    *
    * @example
    * ```ts
-   * const data = req.validate(CreateUserSchema);
-   * // data is fully typed
+   * const data = await req.validate({
+   *   email: 'required|email',
+   *   password: 'required|min:8',
+   *   age: 'numeric|min:18',
+   * });
    * ```
    */
-  validate<T>(schema: ZodSchema<T>): T {
-    const result = schema.safeParse(this._body);
+  async validate<T = Record<string, any>>(rules: Record<string, string> | ZodSchema<T>): Promise<T> {
+    let body = this.body();
+    if (body === undefined || body === null) {
+      try {
+        body = await this.json();
+      } catch {
+        body = {};
+      }
+    }
+
+    if (typeof rules === 'object' && rules !== null && !('safeParse' in rules)) {
+      return Validator.validate<T>(body, rules as Record<string, string>);
+    }
+
+    // Zod schema fallback
+    const schema = rules as ZodSchema<T>;
+    const result = schema.safeParse(body);
     if (!result.success) {
       throw new ValidationException(result.error);
     }

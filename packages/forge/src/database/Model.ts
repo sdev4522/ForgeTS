@@ -1,6 +1,7 @@
 // packages/forge/src/database/Model.ts
 // ─────────────────────────────────────────────────────────────────────
-// Base Active Record Model class with Proxy-backed attribute access.
+// Base Active Record Model class with Proxy-backed attribute access
+// and mass-assignment protection (fillable / guarded).
 // Inspired by Eloquent / Lucid.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,12 @@ export abstract class Model {
 
   /** Enable automatic created_at and updated_at timestamps */
   static timestamps: boolean = true;
+
+  /** Allowed attributes for mass-assignment (allow-list). Takes precedence if set. */
+  static fillable?: string[];
+
+  /** Guarded attributes denied from mass-assignment (deny-list). */
+  static guarded?: string[];
 
   /** Internal attributes storage */
   public _attributes: Record<string, any> = {};
@@ -68,10 +75,50 @@ export abstract class Model {
   }
 
   /**
-   * Populate model instance with attributes.
+   * Filter data attributes against model fillable / guarded mass-assignment rules.
+   * - If fillable is set, only keys in fillable are allowed.
+   * - Else if guarded is set, keys in guarded are denied (['*'] denies all).
+   * - Else (neither set), defaults to safe default: guarded = ['id', 'created_at', 'updated_at', 'deleted_at'].
+   */
+  static filterMassAssignment(data: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    if (Array.isArray(this.fillable)) {
+      // Fillable allow-list takes precedence
+      for (const key of this.fillable) {
+        if (key in data && data[key] !== undefined) {
+          result[key] = data[key];
+        }
+      }
+      return result;
+    }
+
+    const guardedList = Array.isArray(this.guarded)
+      ? this.guarded
+      : ['id', 'created_at', 'updated_at', 'deleted_at'];
+
+    if (guardedList.includes('*')) {
+      return {};
+    }
+
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined && !guardedList.includes(key)) {
+        result[key] = val;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Populate model instance with mass-assignable attributes.
+   * Silently strips unallowed fields per fillable/guarded rules.
    */
   fill(attributes: Record<string, any>): this {
-    for (const [key, value] of Object.entries(attributes)) {
+    const ctor = this.constructor as typeof Model;
+    const filtered = ctor.filterMassAssignment(attributes);
+
+    for (const [key, value] of Object.entries(filtered)) {
       if (value !== undefined) {
         this._attributes[key] = value;
       }
@@ -80,11 +127,23 @@ export abstract class Model {
   }
 
   /**
-   * Instantiate and hydrate a model instance from a raw database row.
+   * Fill instance with mass-assignable attributes and save to database.
+   */
+  async update(attributes: Record<string, any>): Promise<this> {
+    this.fill(attributes);
+    return this.save();
+  }
+
+  /**
+   * Instantiate and hydrate a model instance from a raw database row (bypassing mass-assignment).
    */
   static hydrate<T extends Model>(this: new (...args: any[]) => T, row: Record<string, any>): T {
     const instance = new this();
-    instance.fill(row);
+    for (const [k, v] of Object.entries(row)) {
+      if (v !== undefined) {
+        instance._attributes[k] = v;
+      }
+    }
     return instance;
   }
 

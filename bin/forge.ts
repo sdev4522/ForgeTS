@@ -4,7 +4,7 @@
 // ForgeTS CLI Scaffolding Tool (artisan equivalent).
 // ─────────────────────────────────────────────────────────────────────
 
-import { writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -237,6 +237,45 @@ export async function down(db: Kysely<any>): Promise<void> {
       break;
     }
 
+    case 'cache:clear':
+    case 'clear:cache': {
+      const cacheDir = join(ROOT_DIR, 'storage', 'framework', 'cache');
+      if (existsSync(cacheDir)) {
+        const files = readdirSync(cacheDir);
+        for (const file of files) {
+          try {
+            const filePath = join(cacheDir, file);
+            if (existsSync(filePath)) {
+              unlinkSync(filePath);
+            }
+          } catch {}
+        }
+      }
+      console.log('✅ [ForgeTS CLI] Application cache cleared successfully.');
+      break;
+    }
+
+    case 'config:clear':
+    case 'config:cache': {
+      const configCache = join(ROOT_DIR, 'storage', 'framework', 'config.json');
+      if (existsSync(configCache)) {
+        unlinkSync(configCache);
+      }
+      console.log('✅ [ForgeTS CLI] Configuration cache cleared successfully.');
+      break;
+    }
+
+    case 'optimize:clear': {
+      const frameworkDir = join(ROOT_DIR, 'storage', 'framework');
+      if (existsSync(frameworkDir)) {
+        try {
+          rmSync(frameworkDir, { recursive: true, force: true });
+        } catch {}
+      }
+      console.log('✅ [ForgeTS CLI] All caches (config, routes, views) cleared successfully.');
+      break;
+    }
+
     default: {
       console.log(`
 ⚡ ForgeTS CLI Scaffolding Tool v0.1.0
@@ -249,6 +288,9 @@ Available Commands:
   forge make:middleware <Name>           Scaffold an HTTP middleware
   forge make:migration <name>            Scaffold a database migration file
   forge routes:list                      Display all registered routes
+  forge cache:clear                      Clear application cache
+  forge config:clear                     Clear configuration cache
+  forge optimize:clear                   Clear all cached files (config, routes, views)
 `);
       break;
     }

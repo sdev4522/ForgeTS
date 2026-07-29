@@ -11,6 +11,6 @@ export default defineConfig({
   debug: env.boolean('APP_DEBUG', true),
   url: env('APP_URL', 'http://localhost:3000'),
   port: env.number('APP_PORT', 3000),
-  timezone: 'UTC',
+  timezone: 'IST',
   locale: 'en',
 });

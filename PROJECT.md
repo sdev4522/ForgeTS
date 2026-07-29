@@ -107,16 +107,22 @@ conventions, to prove the DX works the way a real developer would experience it.
   - Single-source architecture cleanup (orphaned `src/core/` removed, aliases
     standardized) — ✅
 
-- **v0.2 — Security & Stability** — NEXT
-  - CSRF protection (session-based routes)
-  - Rate limiting middleware (default on auth routes)
-  - Mass-assignment protection (`fillable`/`guarded` on models)
-  - Input validation layer (`req.validate({...})`, pipe-style rules)
-  - Password hashing helper enforced
-  - `.env`/secrets redaction in any future error-reporting or AI-debug output
+- **v0.2 — Security & Stability** — ✅ **COMPLETED & VERIFIED**
+  - Task 0: Global Error Handler Verification — ✅ Verified `APP_DEBUG=true` JSON/HTML and `APP_DEBUG=false` production response.
+  - Task 1: Input Validation Layer — ✅ Implemented pipe-separated rules (`required`, `email`, `min:N`, `max:N`, `numeric`, `string`, `boolean`), `req.validate()`, `ValidationError` 422 JSON formatting, verified with `TodoController.store()`.
+  - Task 2: Mass-Assignment Protection — ✅ Implemented `fillable`/`guarded` in `Model`, safe default Option A (guarding `id`, `created_at`, `updated_at`, `deleted_at`), updated `Todo.ts`, verified unauthorized field stripping.
+  - Task 3: CSRF Protection — ✅ Implemented `CsrfMiddleware`, `forge_session` cookie, automatic `csrf_field`/`csrf_token` view injection, HTTP 419 rejection on mismatch, verified end-to-end with Todo HTML forms.
+  - Task 4: Rate Limiting Middleware — ✅ Implemented `RateLimiter` sliding-window engine, `@RateLimit(maxAttempts, windowSeconds)` decorator, HTTP 429 response with `Retry-After` header, verified with 4 sequential requests to `POST /todos`.
+  - Task 5: Password Hashing Helper — ✅ Implemented `Hash` class & `hash` helper using SIMD-accelerated native Argon2id (`Bun.password`), verified round-trip `make()` and `verify()` success/failure.
+  - Task 6: Secrets Redaction — ✅ Implemented `ErrorDisplayEngine.redactSecrets()` scanning `.env` values, verified `[REDACTED]` replacement for process secrets in debug error outputs.
 
-- **v0.3 — React + Vite SSR** — NOT STARTED (coexists with, does not replace, the
-  existing HTML View Engine)
+- **v0.3 — React + Vite SSR** — ✅ **COMPLETED & VERIFIED**
+  - Security & Access Control Regression Suite — ✅ Created `tests/integration/SecurityAccessControl.test.ts` (`bun run test:security`), verified 404 responses for `/packages/forge/src/view/ViewEngine.ts`, `/config/database.ts`, `/.env`, and `/package.json`, and 200 OK for `/todos`.
+  - Task 1: Vite Dev Server Integration (Middleware Mode) — ✅ Created `vite.config.ts`, `ViteDevServer.ts`, integrated Vite middleware mode, verified zero pre-existing route regressions (`/todos/ui`, `/todos`).
+  - Task 2: Page Resolution + SSR Render Pipeline — ✅ Implemented `ReactEngine.ts`, updated `res.view()` to resolve `resources/js/pages/*.tsx` first, created `resources/js/pages/todos/index.tsx`, verified server-rendered HTML payload via `curl`.
+  - Task 3: Client-Side Hydration — ✅ Implemented `resources/js/entry-client.tsx`, serialized `{ page, props }` in `__FORGETS_DATA__` script tag, verified hydration in Chrome browser with zero console hydration warnings and verified interactivity.
+  - Task 4: Production Build Pipeline — ✅ Created `resources/js/entry-server.tsx`, configured Vite client manifest & SSR bundle builds (`bun run build`), verified production bundle size reduction (`entry-client-*.js` ~384 KB / 116 KB gzip vs 964 KB dev bundle), updated production server path to load compiled SSR bundle (`dist/server/entry-server.js`) & manifest assets (`dist/client/manifest.json`) without Vite dev server, verified `NODE_ENV=production` execution.
+  - Task 5: SEO Meta Tags — ✅ Implemented chainable `res.view().meta({ title, description })` API on `ForgeResponse`, injected `<title>` and `<meta name="description">` tags into `<head>` of SSR shell document, verified raw crawlable HTML via `curl` (`GET /todos/react` in production mode).
 
 - **v0.4 — SSR Polish & DX** — NOT STARTED
 

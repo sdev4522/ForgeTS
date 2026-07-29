@@ -15,15 +15,19 @@
 // that resolves the route from the trie and executes the pipeline.
 // ─────────────────────────────────────────────────────────────────────
 
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Container } from '../container/Container.js';
 import { Router, type RegisteredRoute } from '../routing/Router.js';
 import { RouteResolver, type ResolvedRoute } from '../routing/RouteResolver.js';
 import { Request, ValidationException } from '../http/Request.js';
+import { ValidationError } from '../http/Validator.js';
 import { ForgeResponse } from '../http/Response.js';
+import { ErrorDisplayEngine } from '../http/ErrorDisplayEngine.js';
 import { executePipeline } from '../http/Pipeline.js';
 import { initConfig, getConfigManager, type ConfigManager } from '../config/ConfigManager.js';
 import { ViewEngine } from '../view/ViewEngine.js';
+import { ReactEngine } from '../ssr/ReactEngine.js';
+import { getTimezone } from './time.js';
 import type { HttpMethod } from '../routing/decorators.js';
 import type { MiddlewareClass } from '../http/Middleware.js';
 
@@ -41,6 +45,7 @@ export class Application {
   private resolver: RouteResolver;
   private configManager: ConfigManager;
   private viewEngine: ViewEngine;
+  private reactEngine: ReactEngine;
   private providers: Provider[] = [];
   private globalMiddleware: MiddlewareClass[] = [];
   private booted = false;
@@ -49,6 +54,7 @@ export class Application {
     this.container = new Container();
     this.resolver = new RouteResolver();
     this.viewEngine = new ViewEngine(rootDir);
+    this.reactEngine = new ReactEngine(rootDir);
 
     // Initialize config system
     this.configManager = initConfig(rootDir);
@@ -57,6 +63,7 @@ export class Application {
     this.container.instance('app', this);
     this.container.instance(Container, this.container);
     this.container.instance(ViewEngine, this.viewEngine);
+    this.container.instance(ReactEngine, this.reactEngine);
   }
 
   /**
@@ -121,6 +128,9 @@ export class Application {
   private boot(): void {
     if (this.booted) return;
 
+    // Synchronize process-wide timezone with app configuration
+    process.env.TZ = getTimezone();
+
     for (const provider of this.providers) {
       provider.boot?.(this.container);
     }
@@ -143,6 +153,7 @@ export class Application {
     const server = Bun.serve({
       port: listenPort,
       fetch: (rawRequest: globalThis.Request) => this.handleRequest(rawRequest),
+      error: (err: Error) => this.handleError(err),
     });
 
     const routeCount = this.resolver.count;
@@ -153,6 +164,52 @@ export class Application {
     console.log(`  ├─ Runtime: Bun ${Bun.version}`);
     console.log(`  └─ Ready in ${Math.round(performance.now())}ms`);
     console.log('');
+  }
+
+  /**
+   * Safely check if a requested static path is permitted to be served over HTTP.
+   */
+  private isAllowedStaticPath(path: string, isProduction: boolean): boolean {
+    const normalized = path.replace(/\\/g, '/');
+
+    // Explicitly block sensitive framework source files, configs, process secrets, & internal dirs
+    if (
+      normalized.includes('.env') ||
+      normalized.includes('.git') ||
+      normalized.includes('package.json') ||
+      normalized.includes('tsconfig.json') ||
+      normalized.includes('bun.lock') ||
+      normalized.includes('yarn.lock') ||
+      normalized.startsWith('/packages/') ||
+      normalized.startsWith('/config/') ||
+      normalized.startsWith('/app/') ||
+      normalized.startsWith('/database/') ||
+      normalized.startsWith('/bootstrap/') ||
+      normalized.startsWith('/bin/')
+    ) {
+      return false;
+    }
+
+    if (isProduction) {
+      return (
+        normalized.startsWith('/assets/') ||
+        normalized.startsWith('/dist/client/') ||
+        normalized.endsWith('.js') ||
+        normalized.endsWith('.css') ||
+        normalized.endsWith('.png') ||
+        normalized.endsWith('.ico') ||
+        normalized.endsWith('.jpg') ||
+        normalized.endsWith('.svg')
+      );
+    }
+
+    return (
+      normalized.startsWith('/public/') ||
+      normalized.startsWith('/resources/js/') ||
+      normalized.startsWith('/resources/css/') ||
+      normalized.startsWith('/@vite/') ||
+      normalized.startsWith('/@react-refresh')
+    );
   }
 
   /**
@@ -170,16 +227,89 @@ export class Application {
       const resolved = this.resolver.resolve(method, path);
 
       if (!resolved) {
-        // Try serving static asset from public/ folder for GET/HEAD requests
+        // Try serving static asset ONLY if path is explicitly whitelisted and within allowed boundaries
         if (method === 'GET' || method === 'HEAD') {
-          const publicFilePath = join(this.rootDir, 'public', path);
-          const file = Bun.file(publicFilePath);
-          if (await file.exists()) {
-            return new globalThis.Response(file);
+          const relativePath = path.startsWith('/') ? path.slice(1) : path;
+
+          if (process.env.NODE_ENV === 'production') {
+            if (this.isAllowedStaticPath(path, true)) {
+              const distFilePath = join(this.rootDir, 'dist', 'client', relativePath);
+              const resolvedDist = resolve(distFilePath);
+              const allowedDistRoot = resolve(join(this.rootDir, 'dist', 'client'));
+
+              if (resolvedDist.startsWith(allowedDistRoot)) {
+                const distFile = Bun.file(resolvedDist);
+                if (await distFile.exists()) {
+                  return new globalThis.Response(distFile);
+                }
+              }
+
+              const publicFilePath = join(this.rootDir, 'public', relativePath);
+              const resolvedPublic = resolve(publicFilePath);
+              const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
+
+              if (resolvedPublic.startsWith(allowedPublicRoot)) {
+                const publicFile = Bun.file(resolvedPublic);
+                if (await publicFile.exists()) {
+                  return new globalThis.Response(publicFile);
+                }
+              }
+            }
+          } else {
+            // Dev mode: serve ONLY whitelisted /resources/js/, /resources/css/, or /public/
+            if (this.isAllowedStaticPath(path, false)) {
+              const devFilePath = join(this.rootDir, relativePath);
+              const resolvedDev = resolve(devFilePath);
+              const allowedResourcesRoot = resolve(join(this.rootDir, 'resources'));
+              const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
+
+              if (resolvedDev.startsWith(allowedResourcesRoot) || resolvedDev.startsWith(allowedPublicRoot)) {
+                const devFile = Bun.file(resolvedDev);
+                if (await devFile.exists()) {
+                  if (path.endsWith('.tsx') || path.endsWith('.ts') || path.endsWith('.jsx')) {
+                    try {
+                      const buildResult = await Bun.build({
+                        entrypoints: [resolvedDev],
+                        target: 'browser',
+                        format: 'esm',
+                      });
+                      if (buildResult.success && buildResult.outputs.length > 0) {
+                        const jsText = await buildResult.outputs[0].text();
+                        return new globalThis.Response(jsText, {
+                          headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+                        });
+                      }
+                    } catch {
+                      // fallback below if build has resolution error
+                    }
+
+                    const content = await devFile.text();
+                    const transpiler = new Bun.Transpiler({ loader: 'tsx', target: 'browser' });
+                    const js = transpiler.transformSync(content);
+                    return new globalThis.Response(js, {
+                      headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+                    });
+                  }
+                  return new globalThis.Response(devFile);
+                }
+              }
+            }
+
+            // Fallback for root public files (e.g. GET /favicon.png)
+            const publicFilePath = join(this.rootDir, 'public', relativePath);
+            const resolvedPublic = resolve(publicFilePath);
+            const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
+
+            if (resolvedPublic.startsWith(allowedPublicRoot)) {
+              const publicFile = Bun.file(resolvedPublic);
+              if (await publicFile.exists()) {
+                return new globalThis.Response(publicFile);
+              }
+            }
           }
         }
 
-        // No matching route or static file — 404
+        // 404 for all forbidden, un-whitelisted, or missing routes/files
         return new ForgeResponse()
           .notFound(`No route matches ${method} ${path}`)
           .toNativeResponse();
@@ -232,7 +362,10 @@ export class Application {
           );
         }
 
-        const response = new ForgeResponse(this.viewEngine);
+        const response = new ForgeResponse(this.viewEngine, this.reactEngine);
+        if ((_req as any)._csrfToken) {
+          (response as any)._csrfToken = (_req as any)._csrfToken;
+        }
         const result = await handler.call(controller, _req, response);
 
         // If the handler returned a ForgeResponse, use it.
@@ -255,29 +388,32 @@ export class Application {
 
       return response.toNativeResponse();
     } catch (error) {
-      return this.handleError(error);
+      return this.handleError(error, rawRequest);
     }
   }
 
   /**
-   * Global error handler.
-   * Converts known exceptions into proper HTTP responses.
+   * Global error handler engine.
+   * Converts known exceptions into structured HTTP responses or HTML debug pages.
    */
-  private handleError(error: unknown): globalThis.Response {
-    // Validation errors → 422
-    if (error instanceof ValidationException) {
+  public handleError(error: unknown, rawRequest?: globalThis.Request): globalThis.Response {
+    // 1. Validation errors → 422
+    if (error instanceof ValidationError || error instanceof ValidationException) {
       return new ForgeResponse()
         .status(422)
         .json({
-          error: 'Validation Failed',
+          message: 'The given data was invalid.',
           statusCode: 422,
-          errors: error.errors,
+          errors: (error as any).errors,
         })
         .toNativeResponse();
     }
 
-    // HttpException (custom exceptions with status codes)
+    // 2. Custom HttpException → status code
     if (error instanceof HttpException) {
+      if (error.statusCode >= 500) {
+        console.error('[ForgeTS] Unhandled error:', error);
+      }
       return new ForgeResponse()
         .status(error.statusCode)
         .json({
@@ -287,18 +423,49 @@ export class Application {
         .toNativeResponse();
     }
 
-    // Unknown errors → 500
-    const message =
-      process.env.NODE_ENV === 'production'
-        ? 'Internal Server Error'
-        : error instanceof Error
-          ? error.message
-          : 'Unknown error';
-
+    // 3. System / Unknown Exception → 500
     console.error('[ForgeTS] Unhandled error:', error);
+    const isDebug = process.env.APP_DEBUG === 'true';
+    const acceptHeader = rawRequest?.headers.get('accept') ?? '';
+    const wantsJson = acceptHeader.includes('application/json') && !acceptHeader.includes('text/html');
+
+    if (isDebug) {
+      if (wantsJson && error instanceof Error) {
+        const redactedMessage = ErrorDisplayEngine.redactSecrets(error.message);
+        const rawStack = ErrorDisplayEngine.redactSecrets(error.stack ?? '');
+        const stackLines = rawStack
+          ? rawStack.split('\n').map((line) => line.trim())
+          : [];
+
+        return new ForgeResponse()
+          .status(500)
+          .json({
+            message: redactedMessage,
+            name: error.name || 'Error',
+            stack: stackLines,
+          })
+          .toNativeResponse();
+      }
+
+      // Render rich HTML debug error page for browser requests
+      const debugHtml = ErrorDisplayEngine.renderHtml(error, rawRequest?.url);
+      return new ForgeResponse()
+        .status(500)
+        .html(debugHtml)
+        .toNativeResponse();
+    }
+
+    // Non-debug / Production mode: generic response only
+    if (wantsJson) {
+      return new ForgeResponse()
+        .status(500)
+        .json({ message: 'Internal Server Error' })
+        .toNativeResponse();
+    }
 
     return new ForgeResponse()
-      .serverError(message)
+      .status(500)
+      .html(`<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head><body style="background:#090d16;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><h1>500 Internal Server Error</h1></body></html>`)
       .toNativeResponse();
   }
 

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- FORGETS_TITLE --></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(18, 24, 38, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.12) 0%, transparent 40%);
+    }
+    .container { width: 100%; max-width: 640px; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; }
+    .logo { display: flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 800; }
+    .logo span { color: var(--primary); }
+    .badge { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 8px #10b981; }
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); backdrop-filter: blur(16px); border-radius: 16px; padding: 24px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4); margin-bottom: 24px; }
+    .form-group { display: flex; gap: 12px; }
+    input[type="text"] { flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 8px; padding: 12px 16px; color: var(--text); font-size: 15px; outline: none; }
+    button { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; }
+    .todo-list { display: flex; flex-direction: column; gap: 12px; }
+    .todo-item { display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.4); border: 1px solid var(--card-border); padding: 14px 18px; border-radius: 10px; }
+    .todo-title.completed { text-decoration: line-through; color: var(--text-muted); }
+    .btn-toggle { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 12px; font-size: 12px; border-radius: 6px; margin-right: 8px; }
+    .btn-toggle.done { background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(52, 211, 153, 0.3); }
+    .btn-delete { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 6px 12px; font-size: 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div id="root"><!-- FORGETS_APP --></div>
+  <script type="application/json" id="__FORGETS_DATA__"><!-- FORGETS_DATA --></script>
+  <script type="module" src="/resources/js/entry-client.tsx"></script>
+</body>
+</html>

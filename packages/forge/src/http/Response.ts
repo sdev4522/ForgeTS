@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type { ViewEngine } from '../view/ViewEngine.js';
+import type { ReactEngine } from '../ssr/ReactEngine.js';
 
 export interface CookieOptions {
   maxAge?: number;
@@ -24,9 +25,11 @@ export class ForgeResponse {
   private _body: BodyInit | null = null;
   private _cookies: string[] = [];
   private _viewEngine: ViewEngine | null;
+  private _reactEngine: ReactEngine | null;
 
-  constructor(viewEngine?: ViewEngine) {
+  constructor(viewEngine?: ViewEngine, reactEngine?: ReactEngine) {
     this._viewEngine = viewEngine ?? null;
+    this._reactEngine = reactEngine ?? null;
   }
 
   // ─── Status ───
@@ -83,17 +86,97 @@ export class ForgeResponse {
    * return res.view('welcome', { title: 'Hello', uptime: '5m' });
    * ```
    */
-  view(template: string, data: Record<string, unknown> = {}, status?: number): this {
-    if (!this._viewEngine) {
-      throw new Error(
-        '[ForgeTS] ViewEngine not available. ' +
-          'This typically means res.view() was called on a manually-constructed ForgeResponse. ' +
-          'Use the response object passed to your controller method.',
-      );
-    }
+  /**
+   * Render a view template or React SSR page.
+   *
+   * @param template Template name (e.g., 'todos/index' → resources/js/pages/todos/index.tsx)
+   * @param data Data to interpolate into the template or pass as props to React component
+   *
+   * @example
+   * ```ts
+   * return res.view('todos/index', { todos }).meta({
+   *   title: 'All Todos',
+   *   description: 'Browse all todos',
+   * });
+   * ```
+   */
+  view(
+    template: string,
+    data: Record<string, unknown> = {},
+    status?: number,
+  ): Promise<this> & { meta: (metadata: Record<string, string>) => Promise<this> } {
+    const promise = (async () => {
+      if (!this._viewEngine) {
+        throw new Error(
+          '[ForgeTS] ViewEngine not available. ' +
+            'This typically means res.view() was called on a manually-constructed ForgeResponse. ' +
+            'Use the response object passed to your controller method.',
+        );
+      }
 
-    const rendered = this._viewEngine.render(template, data);
-    return this.html(rendered, status);
+      const token = (data['_csrfToken'] || data['csrf_token'] || (this as any)._csrfToken || '') as string;
+      const csrfField = token
+        ? `<input type="hidden" name="_token" value="${token}">`
+        : '';
+
+      const viewData = {
+        csrf_token: token,
+        csrf_field: csrfField,
+        ...data,
+      };
+
+      if (this._reactEngine && this._reactEngine.hasPage(template)) {
+        const html = await this._reactEngine.renderPage(template, viewData);
+        return this.html(html, status);
+      }
+
+      const rendered = this._viewEngine.render(template, viewData);
+      return this.html(rendered, status);
+    })();
+
+    (promise as any).meta = (metadata: Record<string, string>) => {
+      return promise.then((res) => res.meta(metadata));
+    };
+
+    return promise as any;
+  }
+
+  /**
+   * Set per-route SEO head metadata (title, description, og:tags, etc.).
+   */
+  meta(metadata: Record<string, string>): this {
+    if (typeof this._body === 'string') {
+      let body = this._body;
+
+      if (metadata.title) {
+        body = body.replace(/<title>.*?<\/title>/i, `<title>${metadata.title}</title>`);
+      }
+
+      if (metadata.description) {
+        if (/<meta\s+name="description"/i.test(body)) {
+          body = body.replace(
+            /<meta\s+name="description"[^>]*>/i,
+            `<meta name="description" content="${metadata.description}">`,
+          );
+        } else {
+          body = body.replace(
+            '</head>',
+            `  <meta name="description" content="${metadata.description}">\n</head>`,
+          );
+        }
+      }
+
+      for (const [key, value] of Object.entries(metadata)) {
+        if (key === 'title' || key === 'description') continue;
+        const metaTag = `<meta name="${key}" content="${value}">`;
+        if (!body.includes(metaTag)) {
+          body = body.replace('</head>', `  ${metaTag}\n</head>`);
+        }
+      }
+
+      this._body = body;
+    }
+    return this;
   }
 
   // ─── Shortcut Status Responses ───

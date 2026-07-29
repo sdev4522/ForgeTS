@@ -1,44 +1,27 @@
 // app/controllers/TodoController.ts
-import { Controller, Get, Post, Put, Delete, Request, ForgeResponse } from '@forge/core';
+import { Controller, Get, Post, Put, Delete, Request, ForgeResponse, now, RateLimit } from '@forge/core';
 import { Todo } from '../models/Todo.js';
 
 @Controller('/todos')
 export class TodoController {
 
-  /** GET /todos/ui — Render HTML UI for Todo app */
+  /** GET /todos/ui — Render Todo UI app via React SSR */
   @Get('/ui')
   async ui(_req: Request, res: ForgeResponse): Promise<ForgeResponse> {
-    const todos = await Todo.all();
+    const rawTodos = await Todo.all();
+    const todos = rawTodos.map((t) => t.toJSON());
+    return res.view('todos/index', { todos, title: 'ForgeTS — Todo App (React SSR)' });
+  }
 
-    let todoListHtml = '';
-    if (todos.length === 0) {
-      todoListHtml = `<div class="empty-state">No tasks yet! Add your first task above.</div>`;
-    } else {
-      todoListHtml = todos
-        .map((t: any) => {
-          const isDone = Boolean(t.completed);
-          const completedClass = isDone ? 'completed' : '';
-          const toggleText = isDone ? '✓ Completed' : 'Mark Done';
-          const toggleClass = isDone ? 'done' : '';
-
-          return `
-            <div class="todo-item">
-              <span class="todo-title ${completedClass}">${this.escapeHtml(t.title)}</span>
-              <div class="actions">
-                <form action="/todos/${t.id}/toggle" method="POST" style="display:inline">
-                  <button type="submit" class="btn-toggle ${toggleClass}">${toggleText}</button>
-                </form>
-                <form action="/todos/${t.id}/delete" method="POST" style="display:inline">
-                  <button type="submit" class="btn-delete">Delete</button>
-                </form>
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-    }
-
-    return res.view('todos/index', { todoListHtml });
+  /** GET /todos/react — Render React SSR UI for Todo app with chainable SEO meta tags */
+  @Get('/react')
+  async reactUI(_req: Request, res: ForgeResponse): Promise<ForgeResponse> {
+    const rawTodos = await Todo.all();
+    const todos = rawTodos.map((t) => t.toJSON());
+    return res.view('todos/index', { todos }).meta({
+      title: 'All Todos',
+      description: 'Browse all todos',
+    });
   }
 
   /** POST /todos/create — Handle HTML form submission */
@@ -46,11 +29,10 @@ export class TodoController {
   async createForm(req: Request, res: ForgeResponse): Promise<ForgeResponse> {
     const body = await req.body<{ title?: string }>();
     if (body && body.title && body.title.trim()) {
-      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
       await Todo.create({
         title: body.title.trim(),
         completed: 0,
-        created_at: now,
+        created_at: now().toDateTimeString(),
       });
     }
     return res.redirect('/todos/ui');
@@ -96,16 +78,17 @@ export class TodoController {
   }
 
   @Post('/')
+  @RateLimit(3, 60)
   async store(req: Request, res: ForgeResponse): Promise<ForgeResponse> {
-    const body = await req.body<{ title?: string; completed?: boolean }>();
-    if (!body || !('title' in body) || !body.title) {
-      return res.status(400).json({ error: 'title is required' });
-    }
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const data = await req.validate<{ title: string; completed?: boolean }>({
+      title: 'required|string|min:3',
+      completed: 'boolean',
+    });
+
     const todo = await Todo.create({
-      title: body.title,
-      completed: body.completed ? 1 : 0,
-      created_at: now,
+      title: data.title,
+      completed: data.completed ? 1 : 0,
+      created_at: now().toDateTimeString(),
     });
     return res.status(201).json(todo.toJSON());
   }

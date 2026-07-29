@@ -42,6 +42,21 @@ export class Router {
   private currentMiddleware: MiddlewareClass[] = [];
 
   /**
+   * Apply middleware to all subsequent controllers registered on this router.
+   */
+  middleware(...middlewareList: MiddlewareClass[]): this {
+    this.currentMiddleware.push(...middlewareList);
+    return this;
+  }
+
+  /**
+   * Alias for middleware().
+   */
+  use(...middlewareList: MiddlewareClass[]): this {
+    return this.middleware(...middlewareList);
+  }
+
+  /**
    * Register a decorated controller class.
    * Reads @Controller, @Get/@Post/etc., and @Middleware metadata.
    *

@@ -9,6 +9,7 @@ import './polyfills.js';
 
 // ─── Core ───
 export { Application, Provider } from './core/Application.js';
+export { now, today, ForgeDate, getTimezone } from './core/time.js';
 export {
   HttpException,
   NotFoundException,
@@ -19,8 +20,18 @@ export {
 
 // ─── HTTP ───
 export { Request, ValidationException } from './http/Request.js';
+export { Validator, ValidationError, type ValidationRules } from './http/Validator.js';
 export { ForgeResponse, type CookieOptions } from './http/Response.js';
+export { CsrfMiddleware } from './http/CsrfMiddleware.js';
+export { RateLimiter, RateLimit, createRateLimitMiddleware } from './http/RateLimiter.js';
+export { ErrorDisplayEngine } from './http/ErrorDisplayEngine.js';
 export type { Middleware, MiddlewareClass, NextFunction } from './http/Middleware.js';
+
+// ─── Security ───
+export { Hash, hash } from './security/hash.js';
+
+// ─── SSR & Vite ───
+export { getViteDevServer, isViteAssetRequest } from './ssr/ViteDevServer.js';
 
 // ─── Routing ───
 export { Router } from './routing/Router.js';
