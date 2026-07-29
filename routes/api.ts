@@ -1,18 +1,14 @@
 // routes/api.ts
 // ─────────────────────────────────────────────────────────────────────
 // API route definitions.
-// This is the "table of contents" for your API — import controllers
-// and register them here. NO business logic in this file.
+// All routes in this file are automatically prefixed with `/api`.
 // ─────────────────────────────────────────────────────────────────────
 
-import { Router } from '../packages/forge/src/index.js';
+import { Router } from '@forge/core';
 import { HealthController } from '../app/controllers/HealthController.js';
 
-const router = new Router();
+const router = new Router('/api');
 
-// ─── API v1 Routes ───
-router.group({ prefix: '/api' }, () => {
-  router.controller(HealthController);
-});
+router.controller(HealthController);
 
 export default router;

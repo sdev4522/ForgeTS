@@ -200,6 +200,18 @@ export class Application {
               .badRequest('Invalid JSON body')
               .toNativeResponse();
           }
+        } else if (contentType.includes('application/x-www-form-urlencoded')) {
+          try {
+            const text = await rawRequest.text();
+            const params = new URLSearchParams(text);
+            const bodyObj: Record<string, any> = {};
+            params.forEach((v, k) => (bodyObj[k] = v));
+            req._setBody(bodyObj);
+          } catch {
+            return new ForgeResponse()
+              .badRequest('Invalid form body')
+              .toNativeResponse();
+          }
         }
       }
 

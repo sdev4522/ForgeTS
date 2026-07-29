@@ -1,11 +1,12 @@
 // packages/forge/src/database/Connection.ts
 // ─────────────────────────────────────────────────────────────────────
 // Kysely Database Connection Manager for Bun.
-// Uses native BunDatabase with a dedicated zero-dependency Kysely Dialect.
+// Uses native BunDatabase for SQLite and mysql2 for MySQL.
 // ─────────────────────────────────────────────────────────────────────
 
 import {
   Kysely,
+  MysqlDialect,
   SqliteAdapter,
   SqliteIntrospector,
   SqliteQueryCompiler,
@@ -16,6 +17,7 @@ import {
   type QueryResult,
 } from 'kysely';
 import { Database as BunDatabase } from 'bun:sqlite';
+import mysql from 'mysql2';
 import { dirname } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
 import { config } from '../config/ConfigManager.js';
@@ -111,14 +113,27 @@ export function getDatabaseConnection(): Kysely<any> {
     return _kyselyInstance;
   }
 
-  const defaultConnectionName = config<string>('database.default', 'sqlite');
+  const defaultConnectionName = config<string>('database.default', 'mysql');
   const connConfig = config<any>(`database.connections.${defaultConnectionName}`);
 
   if (!connConfig) {
     throw new Error(`[ForgeTS] Database connection '${defaultConnectionName}' is not defined in config/database.ts.`);
   }
 
-  if (connConfig.driver === 'sqlite') {
+  if (connConfig.driver === 'mysql') {
+    const pool = mysql.createPool({
+      host: connConfig.host ?? '127.0.0.1',
+      port: connConfig.port ?? 3306,
+      database: connConfig.database,
+      user: connConfig.username ?? connConfig.user ?? 'root',
+      password: connConfig.password ?? '',
+      connectionLimit: 10,
+    });
+
+    _kyselyInstance = new Kysely<any>({
+      dialect: new MysqlDialect({ pool: pool as any }),
+    });
+  } else if (connConfig.driver === 'sqlite') {
     const dbPath = connConfig.filename ?? './storage/database.sqlite';
     if (dbPath !== ':memory:') {
       const dir = dirname(dbPath);
@@ -132,7 +147,7 @@ export function getDatabaseConnection(): Kysely<any> {
       dialect: new ForgeBunSqliteDialect(bunDb),
     });
   } else {
-    throw new Error(`[ForgeTS] Driver '${connConfig.driver}' is not yet configured for auto-connection.`);
+    throw new Error(`[ForgeTS] Driver '${connConfig.driver}' is not configured.`);
   }
 
   return _kyselyInstance;

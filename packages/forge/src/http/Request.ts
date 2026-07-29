@@ -53,6 +53,11 @@ export class Request {
     this.method = raw.method;
   }
 
+  /** Get a route parameter by name. */
+  param(name: string): string | undefined {
+    return this.params[name];
+  }
+
   // ─── URL & Path ───
 
   /** The parsed URL object (lazy). */
