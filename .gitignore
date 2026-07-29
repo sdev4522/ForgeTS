@@ -1,0 +1,34 @@
+# ─── Dependencies ───
+node_modules/
+
+# ─── Build & Output Directories ───
+dist/
+dist-src/
+
+# ─── Environment & Credentials ───
+.env
+.env.local
+.env.production
+!.env.example
+
+# ─── Storage & Runtime Data ───
+storage/*.sqlite
+storage/*.sqlite-journal
+storage/*.sqlite-shm
+storage/*.sqlite-wal
+storage/mysql_data/
+storage/logs/
+
+# ─── Operating System & IDE Files ───
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Temporary & Log Files ───
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
