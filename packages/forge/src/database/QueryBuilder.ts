@@ -1,56 +1,93 @@
 // packages/forge/src/database/QueryBuilder.ts
 // ─────────────────────────────────────────────────────────────────────
-// Active Record Query Builder wrapping Kysely.
-// Maps raw database rows into hydrated Model instances with eager loading support.
+// Active Record Query Builder wrapping Kysely (SQL) and MongoDriver (NoSQL).
+// Maps raw database rows/documents into hydrated Model instances.
 // ─────────────────────────────────────────────────────────────────────
 
 import type { Model } from './Model.js';
-import { getDatabaseConnection } from './Connection.js';
+import { getDatabaseConnection, getMongoDriver } from './Connection.js';
 import { MODEL_RELATIONS, type RelationDefinition } from './decorators.js';
 
 export class QueryBuilder<M extends typeof Model> {
-  private query: any;
+  private sqlQuery: any = null;
+  private mongoWhere: Record<string, any> = {};
+  private mongoOrderBy: { column: string; direction?: 'asc' | 'desc' } | undefined = undefined;
+  private mongoLimit: number | undefined = undefined;
+  private mongoOffset: number | undefined = undefined;
   private eagerRelations: string[] = [];
 
   constructor(private modelClass: M) {
-    const db = getDatabaseConnection();
-    this.query = db.selectFrom(modelClass.getTable()).selectAll();
+    if (!this.isMongo()) {
+      const db = getDatabaseConnection();
+      this.sqlQuery = db.selectFrom(modelClass.getTable()).selectAll();
+    }
+  }
+
+  private isMongo(): boolean {
+    return (
+      (this.modelClass as any).connection === 'mongodb' ||
+      (this.modelClass as any).driver === 'mongodb'
+    );
   }
 
   where(column: string, value: unknown): this;
   where(column: string, op: string, value: unknown): this;
   where(column: string, opOrValue: unknown, value?: unknown): this {
-    if (value === undefined) {
-      this.query = this.query.where(column, '=', opOrValue);
+    if (this.isMongo()) {
+      if (value === undefined) {
+        this.mongoWhere[column] = opOrValue;
+      } else if (opOrValue === '=') {
+        this.mongoWhere[column] = value;
+      } else if (opOrValue === '>') {
+        this.mongoWhere[column] = { $gt: value };
+      } else if (opOrValue === '>=') {
+        this.mongoWhere[column] = { $gte: value };
+      } else if (opOrValue === '<') {
+        this.mongoWhere[column] = { $lt: value };
+      } else if (opOrValue === '<=') {
+        this.mongoWhere[column] = { $lte: value };
+      } else if (opOrValue === '!=') {
+        this.mongoWhere[column] = { $ne: value };
+      } else {
+        this.mongoWhere[column] = value;
+      }
     } else {
-      this.query = this.query.where(column, opOrValue as any, value);
+      if (value === undefined) {
+        this.sqlQuery = this.sqlQuery.where(column, '=', opOrValue);
+      } else {
+        this.sqlQuery = this.sqlQuery.where(column, opOrValue as any, value);
+      }
     }
     return this;
   }
 
   orderBy(column: string, direction: 'asc' | 'desc' = 'asc'): this {
-    this.query = this.query.orderBy(column, direction);
+    if (this.isMongo()) {
+      this.mongoOrderBy = { column, direction };
+    } else {
+      this.sqlQuery = this.sqlQuery.orderBy(column, direction);
+    }
     return this;
   }
 
   limit(count: number): this {
-    this.query = this.query.limit(count);
+    if (this.isMongo()) {
+      this.mongoLimit = count;
+    } else {
+      this.sqlQuery = this.sqlQuery.limit(count);
+    }
     return this;
   }
 
   offset(count: number): this {
-    this.query = this.query.offset(count);
+    if (this.isMongo()) {
+      this.mongoOffset = count;
+    } else {
+      this.sqlQuery = this.sqlQuery.offset(count);
+    }
     return this;
   }
 
-  /**
-   * Eager load a relationship.
-   *
-   * @example
-   * ```ts
-   * const users = await User.query().with('posts').get();
-   * ```
-   */
   with(relationName: string): this {
     this.eagerRelations.push(relationName);
     return this;
@@ -60,11 +97,30 @@ export class QueryBuilder<M extends typeof Model> {
    * Execute query and return an array of hydrated Model instances.
    */
   async get(): Promise<InstanceType<M>[]> {
-    const rows: any[] = await this.query.execute();
+    let rows: any[] = [];
+
+    if (this.isMongo()) {
+      const driver = getMongoDriver();
+      rows = await driver.findMany(this.modelClass.getTable(), {
+        where: this.mongoWhere,
+        orderBy: this.mongoOrderBy,
+        limit: this.mongoLimit,
+        offset: this.mongoOffset,
+      });
+    } else {
+      rows = await this.sqlQuery.execute();
+    }
+
     const instances = rows.map((row) => this.modelClass.hydrate<InstanceType<M>>(row));
 
     if (this.eagerRelations.length > 0 && instances.length > 0) {
-      await this.loadEagerRelations(instances);
+      if (this.isMongo()) {
+        console.warn(
+          `[ForgeTS Mongo Warning] Eager loading relations on Mongo models is an intentional non-goal / known gap in Task 2. Skipping relation '${this.eagerRelations.join(', ')}'.`
+        );
+      } else {
+        await this.loadEagerRelations(instances);
+      }
     }
 
     return instances;
@@ -84,14 +140,11 @@ export class QueryBuilder<M extends typeof Model> {
   async firstOrFail(): Promise<InstanceType<M>> {
     const instance = await this.first();
     if (!instance) {
-      throw new Error(`[ForgeTS] Resource not found for model ${this.modelClass.name}`);
+      throw new Error(`[ForgeTS Resource Not Found] Resource not found for model ${this.modelClass.name}`);
     }
     return instance;
   }
 
-  /**
-   * Eager load specified relations on hydrated instances.
-   */
   private async loadEagerRelations(instances: InstanceType<M>[]): Promise<void> {
     const metadata = (this.modelClass as any)[Symbol.metadata];
     if (!metadata) return;

@@ -1,7 +1,7 @@
 // config/database.ts
 // ─────────────────────────────────────────────────────────────────────
 // Database configuration.
-// Supports MySQL (default), SQLite, and PostgreSQL.
+// Supports MySQL (SQL default) and MongoDB (NoSQL document store).
 // ─────────────────────────────────────────────────────────────────────
 
 import { defineConfig, env } from '@forge/core';
@@ -18,9 +18,10 @@ export default defineConfig({
       username: env('DB_USERNAME', 'root'),
       password: env('DB_PASSWORD', ''),
     },
-    sqlite: {
-      driver: 'sqlite' as const,
-      filename: env('DB_FILENAME', './storage/database.sqlite'),
+    mongodb: {
+      driver: 'mongodb' as const,
+      uri: env('MONGO_URI', 'mongodb://127.0.0.1:27017'),
+      database: env('MONGO_DB_NAME', 'forgets'),
     },
     postgres: {
       driver: 'postgres' as const,

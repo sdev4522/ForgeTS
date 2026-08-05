@@ -28,6 +28,7 @@ import { initConfig, getConfigManager, type ConfigManager } from '../config/Conf
 import { ViewEngine } from '../view/ViewEngine.js';
 import { ReactEngine } from '../ssr/ReactEngine.js';
 import { getTimezone } from './time.js';
+import { verifyDatabaseConnectionOnBoot } from '../database/Connection.js';
 import type { HttpMethod } from '../routing/decorators.js';
 import type { MiddlewareClass } from '../http/Middleware.js';
 
@@ -148,6 +149,9 @@ export class Application {
   async start(port?: number): Promise<void> {
     this.boot();
 
+    // Fail-fast database boot health check
+    await verifyDatabaseConnectionOnBoot();
+
     const listenPort = port ?? this.configManager.get<number>('app.port', 3000);
 
     const server = Bun.serve({
@@ -205,9 +209,11 @@ export class Application {
 
     return (
       normalized.startsWith('/public/') ||
-      normalized.startsWith('/resources/js/') ||
-      normalized.startsWith('/resources/css/') ||
+      normalized.startsWith('/resources/') ||
+      normalized.startsWith('/node_modules/') ||
       normalized.startsWith('/@vite/') ||
+      normalized.startsWith('/@id/') ||
+      normalized.startsWith('/@fs/') ||
       normalized.startsWith('/@react-refresh')
     );
   }
@@ -256,33 +262,35 @@ export class Application {
               }
             }
           } else {
-            // Dev mode: serve ONLY whitelisted /resources/js/, /resources/css/, or /public/
+            // Dev mode: serve whitelisted /resources/, /node_modules/, /@vite/, /public/
             if (this.isAllowedStaticPath(path, false)) {
+              try {
+                const { getViteDevServer } = await import('../ssr/ViteDevServer.js');
+                const vite = await getViteDevServer();
+                if (vite) {
+                  const result = await vite.transformRequest(path);
+                  if (result) {
+                    return new globalThis.Response(result.code, {
+                      headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+                    });
+                  }
+                }
+              } catch {}
+
               const devFilePath = join(this.rootDir, relativePath);
               const resolvedDev = resolve(devFilePath);
               const allowedResourcesRoot = resolve(join(this.rootDir, 'resources'));
               const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
+              const allowedNodeModulesRoot = resolve(join(this.rootDir, 'node_modules'));
 
-              if (resolvedDev.startsWith(allowedResourcesRoot) || resolvedDev.startsWith(allowedPublicRoot)) {
+              if (
+                resolvedDev.startsWith(allowedResourcesRoot) ||
+                resolvedDev.startsWith(allowedPublicRoot) ||
+                resolvedDev.startsWith(allowedNodeModulesRoot)
+              ) {
                 const devFile = Bun.file(resolvedDev);
                 if (await devFile.exists()) {
                   if (path.endsWith('.tsx') || path.endsWith('.ts') || path.endsWith('.jsx')) {
-                    try {
-                      const buildResult = await Bun.build({
-                        entrypoints: [resolvedDev],
-                        target: 'browser',
-                        format: 'esm',
-                      });
-                      if (buildResult.success && buildResult.outputs.length > 0) {
-                        const jsText = await buildResult.outputs[0].text();
-                        return new globalThis.Response(jsText, {
-                          headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
-                        });
-                      }
-                    } catch {
-                      // fallback below if build has resolution error
-                    }
-
                     const content = await devFile.text();
                     const transpiler = new Bun.Transpiler({ loader: 'tsx', target: 'browser' });
                     const js = transpiler.transformSync(content);
@@ -409,11 +417,68 @@ export class Application {
         .toNativeResponse();
     }
 
+    const isDebug = process.env.APP_DEBUG === 'true';
+    const acceptHeader = rawRequest?.headers.get('accept') ?? '';
+    const pathname = rawRequest ? new URL(rawRequest.url, 'http://localhost').pathname : '';
+    const isApiRoute = pathname.startsWith('/api/') || pathname === '/api';
+    const prefersHtml = !isApiRoute && acceptHeader.includes('text/html');
+    const wantsJson = !prefersHtml;
+
+    // 2. Database Connection / Network Outage → 503 Service Unavailable
+    const errCode = (error as any)?.code;
+    const errName = (error as any)?.name;
+    const errMsg = (error as any)?.message ?? '';
+    const isDbError =
+      errCode === 'ECONNREFUSED' ||
+      errCode === 'ETIMEDOUT' ||
+      errCode === 'ENOTFOUND' ||
+      errCode === 'ER_ACCESS_DENIED_ERROR' ||
+      errName === 'MongoNetworkError' ||
+      errName === 'MongoServerSelectionError' ||
+      errMsg.includes('ECONNREFUSED') ||
+      errMsg.includes('MongoConnectionFailure') ||
+      errMsg.includes('[ForgeTS Mongo Connection Failure]') ||
+      errMsg.includes('[ForgeTS Database Error]');
+
+    if (isDbError) {
+      console.error('[ForgeTS Database Resilience] Request failed due to database connection issue:', ErrorDisplayEngine.redactSecrets(errMsg));
+      const redactedMsg = ErrorDisplayEngine.redactSecrets(errMsg);
+      const dbMessage = isDebug
+        ? `Service Unavailable: Database connection failed (${redactedMsg})`
+        : 'Service Unavailable: Database connection failed.';
+
+      if (prefersHtml) {
+        const html = isDebug
+          ? ErrorDisplayEngine.renderHtml(new HttpException(503, dbMessage), rawRequest?.url)
+          : ErrorDisplayEngine.renderProductionHtml(503, dbMessage);
+        return new ForgeResponse().status(503).html(html).toNativeResponse();
+      }
+
+      return new ForgeResponse()
+        .status(503)
+        .json({
+          error: dbMessage,
+          statusCode: 503,
+        })
+        .toNativeResponse();
+    }
+
     // 2. Custom HttpException → status code
     if (error instanceof HttpException) {
       if (error.statusCode >= 500) {
         console.error('[ForgeTS] Unhandled error:', error);
       }
+
+      if (prefersHtml) {
+        const html = isDebug
+          ? ErrorDisplayEngine.renderHtml(error, rawRequest?.url)
+          : ErrorDisplayEngine.renderProductionHtml(error.statusCode, error.message);
+        return new ForgeResponse()
+          .status(error.statusCode)
+          .html(html)
+          .toNativeResponse();
+      }
+
       return new ForgeResponse()
         .status(error.statusCode)
         .json({
@@ -425,9 +490,6 @@ export class Application {
 
     // 3. System / Unknown Exception → 500
     console.error('[ForgeTS] Unhandled error:', error);
-    const isDebug = process.env.APP_DEBUG === 'true';
-    const acceptHeader = rawRequest?.headers.get('accept') ?? '';
-    const wantsJson = acceptHeader.includes('application/json') && !acceptHeader.includes('text/html');
 
     if (isDebug) {
       if (wantsJson && error instanceof Error) {
@@ -463,9 +525,10 @@ export class Application {
         .toNativeResponse();
     }
 
+    const prodHtml = ErrorDisplayEngine.renderProductionHtml(500, 'Internal Server Error');
     return new ForgeResponse()
       .status(500)
-      .html(`<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head><body style="background:#090d16;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><h1>500 Internal Server Error</h1></body></html>`)
+      .html(prodHtml)
       .toNativeResponse();
   }
 

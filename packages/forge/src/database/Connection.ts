@@ -1,112 +1,17 @@
 // packages/forge/src/database/Connection.ts
 // ─────────────────────────────────────────────────────────────────────
-// Kysely Database Connection Manager for Bun.
-// Uses native BunDatabase for SQLite and mysql2 for MySQL.
+// Database Connection Manager for SQL (MySQL) and NoSQL (MongoDB).
+// Provides singleton drivers, connection pooling, and boot-time fail-fast health checks.
 // ─────────────────────────────────────────────────────────────────────
 
-import {
-  Kysely,
-  MysqlDialect,
-  SqliteAdapter,
-  SqliteIntrospector,
-  SqliteQueryCompiler,
-  type Dialect,
-  type Driver,
-  type DatabaseConnection,
-  type CompiledQuery,
-  type QueryResult,
-} from 'kysely';
-import { Database as BunDatabase } from 'bun:sqlite';
+import { Kysely, MysqlDialect } from 'kysely';
 import mysql from 'mysql2';
-import { dirname } from 'node:path';
-import { mkdirSync, existsSync } from 'node:fs';
 import { config } from '../config/ConfigManager.js';
-
-// ─── Bun Native SQLite Driver for Kysely ───
-
-class BunConnection implements DatabaseConnection {
-  constructor(private db: BunDatabase) {}
-
-  async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    const sql = compiledQuery.sql;
-    const params = compiledQuery.parameters as any[];
-    const isSelect = /^\s*(select|pragma|with)/i.test(sql) || sql.toLowerCase().includes('returning');
-
-    if (isSelect) {
-      const stmt = this.db.prepare(sql);
-      const rows = stmt.all(...params) as R[];
-      return { rows };
-    } else {
-      const stmt = this.db.prepare(sql);
-      const info = stmt.run(...params);
-      return {
-        insertId: info.lastInsertRowid !== undefined ? BigInt(info.lastInsertRowid) : undefined,
-        numUpdatedOrDeletedRows: BigInt(info.changes),
-        rows: [],
-      };
-    }
-  }
-
-  async *streamQuery<R>(): AsyncIterableIterator<QueryResult<R>> {
-    throw new Error('[ForgeTS] Streaming queries are not supported on Bun SQLite driver.');
-  }
-}
-
-class BunDriver implements Driver {
-  private connection: BunConnection;
-
-  constructor(private db: BunDatabase) {
-    this.connection = new BunConnection(db);
-  }
-
-  async init(): Promise<void> {}
-
-  async acquireConnection(): Promise<DatabaseConnection> {
-    return this.connection;
-  }
-
-  async releaseConnection(): Promise<void> {}
-
-  async beginTransaction(conn: DatabaseConnection): Promise<void> {
-    await conn.executeQuery({ sql: 'BEGIN', parameters: [], query: {} as any });
-  }
-
-  async commitTransaction(conn: DatabaseConnection): Promise<void> {
-    await conn.executeQuery({ sql: 'COMMIT', parameters: [], query: {} as any });
-  }
-
-  async rollbackTransaction(conn: DatabaseConnection): Promise<void> {
-    await conn.executeQuery({ sql: 'ROLLBACK', parameters: [], query: {} as any });
-  }
-
-  async destroy(): Promise<void> {
-    this.db.close();
-  }
-}
-
-export class ForgeBunSqliteDialect implements Dialect {
-  constructor(private db: BunDatabase) {}
-
-  createDriver(): Driver {
-    return new BunDriver(this.db);
-  }
-
-  createQueryCompiler() {
-    return new SqliteQueryCompiler();
-  }
-
-  createAdapter() {
-    return new SqliteAdapter();
-  }
-
-  createIntrospector(db: Kysely<any>) {
-    return new SqliteIntrospector(db);
-  }
-}
-
-// ─── Connection Manager ───
+import { MongoDriver } from './MongoDriver.js';
+import { ErrorDisplayEngine } from '../http/ErrorDisplayEngine.js';
 
 let _kyselyInstance: Kysely<any> | null = null;
+let _mongoDriverInstance: MongoDriver | null = null;
 
 export function getDatabaseConnection(): Kysely<any> {
   if (_kyselyInstance) {
@@ -117,7 +22,7 @@ export function getDatabaseConnection(): Kysely<any> {
   const connConfig = config<any>(`database.connections.${defaultConnectionName}`);
 
   if (!connConfig) {
-    throw new Error(`[ForgeTS] Database connection '${defaultConnectionName}' is not defined in config/database.ts.`);
+    throw new Error(`[ForgeTS Database Error] Database connection '${defaultConnectionName}' is not defined in config/database.ts.`);
   }
 
   if (connConfig.driver === 'mysql') {
@@ -128,31 +33,106 @@ export function getDatabaseConnection(): Kysely<any> {
       user: connConfig.username ?? connConfig.user ?? 'root',
       password: connConfig.password ?? '',
       connectionLimit: 10,
+      connectTimeout: 2000,
     });
 
     _kyselyInstance = new Kysely<any>({
       dialect: new MysqlDialect({ pool: pool as any }),
     });
-  } else if (connConfig.driver === 'sqlite') {
-    const dbPath = connConfig.filename ?? './storage/database.sqlite';
-    if (dbPath !== ':memory:') {
-      const dir = dirname(dbPath);
-      if (dir && !existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-      }
-    }
-
-    const bunDb = new BunDatabase(dbPath);
-    _kyselyInstance = new Kysely<any>({
-      dialect: new ForgeBunSqliteDialect(bunDb),
-    });
+  } else if (connConfig.driver === 'mongodb') {
+    throw new Error('[ForgeTS Database Error] Default connection is configured as MongoDB. Use getMongoDriver() or model-specific Mongo connection.');
   } else {
-    throw new Error(`[ForgeTS] Driver '${connConfig.driver}' is not configured.`);
+    throw new Error(`[ForgeTS Database Error] Unsupported or unconfigured database driver: '${connConfig.driver}'.`);
   }
 
   return _kyselyInstance;
 }
 
+export function getMongoDriver(): MongoDriver {
+  if (_mongoDriverInstance) {
+    return _mongoDriverInstance;
+  }
+
+  const mongoConfig = config<any>('database.connections.mongodb');
+  const uri = mongoConfig?.uri || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
+  const database = mongoConfig?.database || process.env.MONGO_DB_NAME || 'forgets';
+
+  _mongoDriverInstance = new MongoDriver({ uri, database });
+  return _mongoDriverInstance;
+}
+
 export function setDatabaseConnection(db: Kysely<any>): void {
   _kyselyInstance = db;
+}
+
+export function setMongoDriver(driver: MongoDriver): void {
+  _mongoDriverInstance = driver;
+}
+
+/**
+ * Fail-Fast Database Boot Check.
+ * Verifies active database connection during server startup.
+ * Exits process with code 1 if unreachable, logging clear error details with secrets redacted.
+ */
+export async function verifyDatabaseConnectionOnBoot(): Promise<void> {
+  const defaultConn = config<string>('database.default', 'mysql');
+  const connConfig = config<any>(`database.connections.${defaultConn}`);
+
+  if (!connConfig) {
+    console.error(`\n[ForgeTS Database Boot Error] Database connection '${defaultConn}' is not defined in config/database.ts.`);
+    process.exit(1);
+  }
+
+  const sanitizedConfig = {
+    connectionName: defaultConn,
+    driver: connConfig.driver,
+    host: connConfig.host ?? '127.0.0.1',
+    port: connConfig.port,
+    database: connConfig.database,
+    uri: connConfig.uri ? ErrorDisplayEngine.redactSecrets(connConfig.uri) : undefined,
+  };
+
+  try {
+    if (connConfig.driver === 'mysql') {
+      const db = getDatabaseConnection();
+      await (db as any).executeQuery({ sql: 'SELECT 1;', parameters: [], query: {} });
+
+      // Auto-ensure default app schema tables (todos, notes) exist on MySQL startup
+      try {
+        await (db as any).executeQuery({
+          sql: `CREATE TABLE IF NOT EXISTS todos (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            completed TINYINT(1) DEFAULT 0,
+            created_at VARCHAR(255)
+          );`,
+          parameters: [],
+          query: {},
+        });
+
+        await (db as any).executeQuery({
+          sql: `CREATE TABLE IF NOT EXISTS notes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            content TEXT,
+            created_at VARCHAR(255)
+          );`,
+          parameters: [],
+          query: {},
+        });
+      } catch {}
+    } else if (connConfig.driver === 'mongodb') {
+      const mongo = getMongoDriver();
+      await mongo.connect();
+    }
+  } catch (err: any) {
+    console.error('\n' + '─'.repeat(70));
+    console.error(`🚨 [ForgeTS Database Boot Failure] Unreachable Database Connection.`);
+    console.error(`   - Connection Name: '${defaultConn}'`);
+    console.error(`   - Driver:          '${connConfig.driver}'`);
+    console.error(`   - Config:          ${JSON.stringify(sanitizedConfig)}`);
+    console.error(`   - Error Details:   ${ErrorDisplayEngine.redactSecrets(err.message)}`);
+    console.error('─'.repeat(70) + '\n');
+    process.exit(1);
+  }
 }

@@ -5,12 +5,15 @@
 // Inspired by Eloquent / Lucid.
 // ─────────────────────────────────────────────────────────────────────
 
-import { getDatabaseConnection } from './Connection.js';
+import { getDatabaseConnection, getMongoDriver } from './Connection.js';
 import { QueryBuilder } from './QueryBuilder.js';
 
 export abstract class Model {
-  /** Database table name. Default: snake_case plural of class name */
+  /** Database table or collection name */
   static table?: string;
+
+  /** Database connection driver name ('mysql', 'mongodb', etc.) */
+  static connection?: string;
 
   /** Primary key column name */
   static primaryKey: string = 'id';
@@ -84,8 +87,9 @@ export abstract class Model {
     const result: Record<string, any> = {};
 
     if (Array.isArray(this.fillable)) {
-      // Fillable allow-list takes precedence
-      for (const key of this.fillable) {
+      // Fillable allow-list takes precedence (primaryKey & _id always preserved for database hydration)
+      const allowedKeys = new Set([...this.fillable, this.getPrimaryKey(), '_id']);
+      for (const key of allowedKeys) {
         if (key in data && data[key] !== undefined) {
           result[key] = data[key];
         }
@@ -187,7 +191,6 @@ export abstract class Model {
     const ctor = this.constructor as typeof Model;
     const table = ctor.getTable();
     const pk = ctor.getPrimaryKey();
-    const db = getDatabaseConnection();
 
     const data: Record<string, any> = { ...this.toJSON() };
 
@@ -201,20 +204,32 @@ export abstract class Model {
 
     const currentPkValue = this._attributes[pk];
 
-    if (currentPkValue !== undefined && currentPkValue !== null) {
-      // UPDATE
-      await db
-        .updateTable(table)
-        .set(data)
-        .where(pk, '=', currentPkValue)
-        .execute();
+    if (ctor.connection === 'mongodb') {
+      const mongo = getMongoDriver();
+      if (currentPkValue !== undefined && currentPkValue !== null) {
+        const updated = await mongo.update(table, currentPkValue, data);
+        if (updated) this.fill(updated);
+      } else {
+        const created = await mongo.create(table, data);
+        if (created) this.fill(created);
+      }
     } else {
-      // INSERT
-      delete data[pk];
-      const result = await db.insertInto(table).values(data).executeTakeFirst();
-      if (result && result.insertId !== undefined) {
-        const insertedId = Number(result.insertId);
-        this._attributes[pk] = insertedId;
+      const db = getDatabaseConnection();
+      if (currentPkValue !== undefined && currentPkValue !== null) {
+        // UPDATE
+        await db
+          .updateTable(table)
+          .set(data)
+          .where(pk, '=', currentPkValue)
+          .execute();
+      } else {
+        // INSERT
+        delete data[pk];
+        const result = await db.insertInto(table).values(data).executeTakeFirst();
+        if (result && result.insertId !== undefined) {
+          const insertedId = Number(result.insertId);
+          this._attributes[pk] = insertedId;
+        }
       }
     }
 
@@ -234,8 +249,13 @@ export abstract class Model {
       throw new Error(`[ForgeTS] Cannot delete unsaved model instance.`);
     }
 
-    const db = getDatabaseConnection();
-    await db.deleteFrom(table).where(pk, '=', pkValue).execute();
+    if (ctor.connection === 'mongodb') {
+      const mongo = getMongoDriver();
+      await mongo.delete(table, pkValue);
+    } else {
+      const db = getDatabaseConnection();
+      await db.deleteFrom(table).where(pk, '=', pkValue).execute();
+    }
   }
 
   /**

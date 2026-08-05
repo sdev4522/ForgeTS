@@ -308,6 +308,107 @@ export class ErrorDisplayEngine {
 </html>`;
   }
 
+  /**
+   * Render a simple, clean production HTML error page when APP_DEBUG=false.
+   * Contains zero stack traces or internal implementation details.
+   */
+  static renderProductionHtml(statusCode = 500, message = 'Something went wrong'): string {
+    const title = statusCode === 404 ? '404 | Page Not Found' : statusCode + ' | Internal Server Error';
+    const heading = statusCode === 404 ? 'Page Not Found' : 'Something went wrong';
+    const description = statusCode === 404
+      ? 'The page you are looking for does not exist or has been moved.'
+      : 'An unexpected error occurred on our server. Please try again later.';
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${this.escapeHtml(title)} — ForgeTS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(15, 23, 42, 0.8);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-blue: #6366f1;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background-image: 
+        radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.12) 0%, transparent 60%);
+    }
+    .error-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      border-radius: 1rem;
+      padding: 3rem 2.5rem;
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .status-code {
+      font-size: 4rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1;
+      margin-bottom: 1rem;
+    }
+    .error-heading {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 0.75rem;
+    }
+    .error-desc {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    .home-btn {
+      display: inline-block;
+      background: var(--accent-blue);
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      text-decoration: none;
+      transition: background-color 0.2s ease;
+    }
+    .home-btn:hover {
+      background-color: #4f46e5;
+    }
+  </style>
+</head>
+<body>
+  <div class="error-card">
+    <div class="status-code">${statusCode}</div>
+    <h1 class="error-heading">${this.escapeHtml(heading)}</h1>
+    <p class="error-desc">${this.escapeHtml(description)}</p>
+    <a href="/" class="home-btn">Return Home</a>
+  </div>
+</body>
+</html>`;
+  }
+
   private static formatTimestamp(): string {
     let tz = 'Asia/Kolkata';
     try {

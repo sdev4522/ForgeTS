@@ -34,11 +34,14 @@ export class ReactEngine {
    * Resolve page file path.
    */
   resolvePagePath(name: string): string | null {
+    const cleanName = name.replace(/^pages\//, '');
     const candidates = [
+      join(this.pagesDir, `${cleanName}.tsx`),
+      join(this.pagesDir, `${cleanName}.jsx`),
+      join(this.pagesDir, cleanName, 'index.tsx'),
+      join(this.pagesDir, cleanName, 'index.jsx'),
       join(this.pagesDir, `${name}.tsx`),
       join(this.pagesDir, `${name}.jsx`),
-      join(this.pagesDir, name, 'index.tsx'),
-      join(this.pagesDir, name, 'index.jsx'),
     ];
 
     for (const path of candidates) {
@@ -80,6 +83,7 @@ export class ReactEngine {
   async renderPage(name: string, props: Record<string, any> = {}): Promise<string> {
     let bodyHtml = '';
     let clientScriptSrc = '/resources/js/entry-client.tsx';
+    let preloadTag = '';
 
     if (process.env.NODE_ENV === 'production') {
       // Load compiled SSR entry module from dist/server/entry-server.js
@@ -105,6 +109,18 @@ export class ReactEngine {
       const entryKey = 'resources/js/entry-client.tsx';
       if (manifest[entryKey] && manifest[entryKey].file) {
         clientScriptSrc = `/${manifest[entryKey].file}`;
+      }
+
+      // Preload targeted page chunk only
+      const pageKeys = [
+        `resources/js/pages/${name}.tsx`,
+        `resources/js/pages/${name}/index.tsx`,
+      ];
+      for (const pKey of pageKeys) {
+        if (manifest[pKey] && manifest[pKey].file) {
+          preloadTag = `<link rel="modulepreload" href="/${manifest[pKey].file}">`;
+          break;
+        }
       }
     } else {
       // Dev mode: use Vite ssrLoadModule
@@ -132,18 +148,39 @@ export class ReactEngine {
     }
 
     const title = props.title || 'ForgeTS — React SSR';
+    const cleanPageName = name.replace(/^pages\//, '');
     const initialPayload = {
-      page: name,
+      page: cleanPageName,
       props,
     };
     const jsonPayload = JSON.stringify(initialPayload).replace(/</g, '\\u003c');
+
+    const vitePreamble = process.env.NODE_ENV !== 'production'
+      ? `<script type="module">
+  import RefreshRuntime from "/@react-refresh"
+  RefreshRuntime.injectIntoGlobalHook(window)
+  window.$RefreshReg$ = () => {}
+  window.$RefreshSig$ = () => (type) => type
+  window.__vite_plugin_react_preamble_installed__ = true
+</script>`
+      : '';
 
     if (existsSync(this.appHtmlPath)) {
       let template = readFileSync(this.appHtmlPath, 'utf-8');
       template = template.replace('<!-- FORGETS_TITLE -->', title);
       template = template.replace('<!-- FORGETS_APP -->', bodyHtml);
       template = template.replace('<!-- FORGETS_DATA -->', jsonPayload);
-      template = template.replace('/resources/js/entry-client.tsx', clientScriptSrc);
+      if (preloadTag) {
+        template = template.replace('</head>', `${preloadTag}\n</head>`);
+      }
+      if (vitePreamble) {
+        template = template.replace(
+          '<script type="module" src="/resources/js/entry-client.tsx"></script>',
+          `${vitePreamble}\n  <script type="module" src="${clientScriptSrc}"></script>`
+        );
+      } else {
+        template = template.replace('/resources/js/entry-client.tsx', clientScriptSrc);
+      }
       return template;
     }
 
@@ -153,11 +190,12 @@ export class ReactEngine {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
+  ${preloadTag}
 </head>
 <body>
   <div id="root">${bodyHtml}</div>
   <script type="application/json" id="__FORGETS_DATA__">${jsonPayload}</script>
-  <script type="module" src="${clientScriptSrc}"></script>
+  ${vitePreamble ? `${vitePreamble}\n  ` : ''}<script type="module" src="${clientScriptSrc}"></script>
 </body>
 </html>`;
   }

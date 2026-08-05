@@ -83,7 +83,7 @@ export class ConfigManager {
    * @example
    * ```ts
    * config.get<number>('app.port')       // 3000
-   * config.get('database.default')       // 'sqlite'
+   * config.get('database.default')       // 'mysql'
    * config.get('app.missing', 'fallback') // 'fallback'
    * ```
    */

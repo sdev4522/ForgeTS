@@ -47,7 +47,7 @@ my-app/
 ├── routes/
 │   ├── api.ts             # API route definitions (/api)
 │   └── web.ts             # Web page route definitions (/)
-├── storage/               # Runtime logs, cache, uploads, SQLite DB
+├── storage/               # Runtime logs, cache, uploads, persistent storage
 └── tests/
     └── unit/              # Bun unit tests (*.test.ts)
 ```

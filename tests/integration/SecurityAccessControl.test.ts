@@ -10,11 +10,11 @@ import { getDatabaseConnection } from '@forge/database';
 
 describe('Security Access Control & Static Asset Scoping', () => {
   beforeAll(async () => {
-    process.env.DB_CONNECTION = 'sqlite';
+    process.env.DB_CONNECTION = 'mysql';
     try {
       const db = getDatabaseConnection();
       await (db as any).executeQuery({
-        sql: `CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, completed INTEGER, created_at TEXT);`,
+        sql: `CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title VARCHAR(255), completed TINYINT, created_at VARCHAR(255));`,
         parameters: [],
       });
     } catch {
