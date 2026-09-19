@@ -23,6 +23,7 @@ export {
 export { Request, ValidationException } from './http/Request.js';
 export { Validator, ValidationError, type ValidationRules } from './http/Validator.js';
 export { ForgeResponse, isValidHttpStatus, normalizeHttpStatus, type CookieOptions } from './http/Response.js';
+export { serializeViewData } from './http/serializer.js';
 export { CsrfMiddleware } from './http/CsrfMiddleware.js';
 export { RateLimiter, RateLimit, createRateLimitMiddleware } from './http/RateLimiter.js';
 export { ErrorDisplayEngine } from './http/ErrorDisplayEngine.js';

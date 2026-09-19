@@ -48,13 +48,13 @@ export abstract class Model {
       get(target: any, prop: string | symbol, _receiver: any) {
         if (
           typeof prop === 'symbol' ||
-          prop.startsWith('_') ||
+          (typeof prop === 'string' && prop.startsWith('_')) ||
           prop === 'constructor' ||
           typeof target[prop] === 'function'
         ) {
           return Reflect.get(target, prop, target);
         }
-        if (prop in target._attributes) {
+        if (typeof prop === 'string' && prop in target._attributes) {
           return target._attributes[prop];
         }
         return Reflect.get(target, prop, target);
@@ -68,6 +68,30 @@ export abstract class Model {
           return true;
         }
         return Reflect.set(target, prop, value, target);
+      },
+      has(target: any, prop: string | symbol) {
+        if (typeof prop === 'string' && prop in target._attributes) {
+          return true;
+        }
+        return Reflect.has(target, prop);
+      },
+      ownKeys(target: any) {
+        const attributeKeys = Object.keys(target._attributes);
+        const targetKeys = Reflect.ownKeys(target).filter(
+          (k) => typeof k !== 'string' || !k.startsWith('_'),
+        );
+        return Array.from(new Set([...targetKeys, ...attributeKeys]));
+      },
+      getOwnPropertyDescriptor(target: any, prop: string | symbol) {
+        if (typeof prop === 'string' && prop in target._attributes) {
+          return {
+            value: target._attributes[prop],
+            writable: true,
+            enumerable: true,
+            configurable: true,
+          };
+        }
+        return Reflect.getOwnPropertyDescriptor(target, prop);
       },
     });
   }

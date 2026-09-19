@@ -1,15 +1,16 @@
 import { Controller, Get, Post, Put, Delete } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
 import { User } from '../models/User.ts';
+
+
 @Controller('/user')
+
 export class UserController {
+
   @Get('/')
   async index(req: Request, res: ForgeResponse) {
     const users = await User.all();
-    if (req.wantsJson() && !req.header('accept')?.includes('text/html')) {
-      return res.json(users);
-    }
-    return res.view('user', { users });
+    return res.view('user', { userData: users });
   }
 
   @Get('/:id')

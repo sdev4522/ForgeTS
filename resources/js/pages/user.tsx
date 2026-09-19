@@ -1,33 +1,34 @@
 import React from 'react';
-import type { PageProps } from '../../types';
+import type { PageProps } from '@/types';
 
+interface UserItem {
+  id: number;
+  name: string;
+  email: string;
+}
 
-export default function UserPage({ csrf_token, user }: PageProps) {
-    console.log(user);
-    return (
-        <div style={{ padding: '2rem', fontFamily: 'sans-serif', color: '#f8fafc' }}>
-            <h1>Abouts Page</h1>
-            <p>{user?.name}</p>
-            <p>{user?.email}</p>
-            <p>{user?.password}</p>
+interface UserPageProps extends PageProps {
+  userData?: UserItem[];
+}
 
-            <form action="/user" method="post">
-                <input type="hidden" name="_token" value={csrf_token} />
-                <input type="text" placeholder='name' name="name" /> <br /><br />
-                <input type="text" placeholder='email' name="email" /> <br /><br />
-                <input type="password" placeholder='password' name="password" /> <br /><br />
-                <button type="submit">Submit</button>
-            </form>
-            <br />
-            {user.map((user: any) => (
-                <div key={user.id}>
-                    <a href={`/user/${user.id}`}>{user.name}</a>
-                    <form action={`/user/${user.id}`} method="delete">
-                        <input type="hidden" name="_token" value={csrf_token} />
-                        <button type="submit">Delete</button>
-                    </form>
-                </div>
-            ))}
+export default function UserPage({ csrf_token, userData = [] }: UserPageProps) {
+  return (
+    <div style={{ padding: '2rem', fontFamily: 'sans-serif', color: '#f8fafc' }}>
+      <h1>Users Page</h1>
+
+      <form action="/user" method="post">
+        <input type="hidden" name="_token" value={csrf_token} />
+        <input type="text" placeholder="name" name="name" /> <br /><br />
+        <input type="text" placeholder="email" name="email" /> <br /><br />
+        <input type="password" placeholder="password" name="password" /> <br /><br />
+        <button type="submit">Submit</button>
+      </form>
+      <br />
+      {userData.map((user: any) => (
+        <div key={user.id} style={{ marginBottom: '0.75rem' }}>
+          <a href={`/user/${user.id}`}>{user.name}</a> — <span>{user.email}</span>
         </div>
-    );
+      ))}
+    </div>
+  );
 }

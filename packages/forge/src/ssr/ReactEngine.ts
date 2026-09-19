@@ -9,6 +9,7 @@ import ReactDOMServer from 'react-dom/server';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getViteDevServer } from './ViteDevServer.js';
+import { serializeViewData } from '../http/serializer.js';
 
 export class ReactEngine {
   private rootDir: string;
@@ -90,6 +91,7 @@ export class ReactEngine {
    *    inside `<script id="__FORGETS_DATA__">` to ensure deterministic client hydration.
    */
   async renderPage(name: string, props: Record<string, any> = {}): Promise<string> {
+    const safeProps = serializeViewData(props);
     let bodyHtml = '';
     let clientScriptSrc = '/resources/js/entry-client.tsx';
     let preloadTag = '';
@@ -104,13 +106,13 @@ export class ReactEngine {
       }
 
       if (this.ssrModule && typeof this.ssrModule.render === 'function') {
-        bodyHtml = await this.ssrModule.render(name, props);
+        bodyHtml = await this.ssrModule.render(name, safeProps);
       } else {
         const pagePath = this.resolvePagePath(name);
         if (!pagePath) throw new Error(`[ForgeTS React SSR] Page component not found: '${name}'`);
         const mod = await import(pagePath);
         const PageComponent = mod.default || mod[Object.keys(mod)[0]];
-        bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, props));
+        bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, safeProps));
       }
 
       // Resolve hashed client asset filename from production manifest
@@ -153,14 +155,14 @@ export class ReactEngine {
         throw new Error(`[ForgeTS React SSR] Page '${name}' has no default export.`);
       }
 
-      bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, props));
+      bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, safeProps));
     }
 
-    const title = props.title || 'ForgeTS — React SSR';
+    const title = safeProps.title || 'ForgeTS — React SSR';
     const cleanPageName = name.replace(/^pages\//, '');
     const initialPayload = {
       page: cleanPageName,
-      props,
+      props: safeProps,
     };
     const jsonPayload = JSON.stringify(initialPayload).replace(/</g, '\\u003c');
 

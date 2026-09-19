@@ -9,6 +9,7 @@
 
 import type { ViewEngine } from '../view/ViewEngine.js';
 import type { ReactEngine } from '../ssr/ReactEngine.js';
+import { serializeViewData } from './serializer.js';
 
 export interface CookieOptions {
   maxAge?: number;
@@ -149,16 +150,21 @@ export class ForgeResponse {
         );
       }
 
-      const token = (data['_csrfToken'] || data['csrf_token'] || (this as any)._csrfToken || '') as string;
+      const normalizedData =
+        data && typeof (data as any).toJSON === 'function'
+          ? (data as any).toJSON()
+          : data;
+
+      const token = (normalizedData['_csrfToken'] || normalizedData['csrf_token'] || (this as any)._csrfToken || '') as string;
       const csrfField = token
         ? `<input type="hidden" name="_token" value="${token}">`
         : '';
 
-      const viewData = {
+      const viewData = serializeViewData({
         csrf_token: token,
         csrf_field: csrfField,
-        ...data,
-      };
+        ...normalizedData,
+      });
 
       if (this._reactEngine && this._reactEngine.hasPage(template)) {
         const html = await this._reactEngine.renderPage(template, viewData);
