@@ -2,14 +2,15 @@ import { Controller, Get, Post, Put, Delete } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
 import { User } from '../models/User.ts';
 
-
 @Controller('/user')
-
 export class UserController {
 
   @Get('/')
   async index(req: Request, res: ForgeResponse) {
     const users = await User.all();
+    if (req.wantsJson() && !req.header('accept')?.includes('text/html')) {
+      return res.json(users);
+    }
     return res.view('user', { userData: users });
   }
 
@@ -44,7 +45,7 @@ export class UserController {
       return res.created(user);
     }
 
-    return res.redirect('/about');
+    return res.redirect('/user');
   }
 
   @Put('/:id')
@@ -54,10 +55,25 @@ export class UserController {
       return res.notFound('User not found');
     }
     const rawBody = typeof (req as any).body === 'function' ? req.body() : (req as any).body;
-    const data = rawBody || {};
+    let data = rawBody || {};
+    if (!data || Object.keys(data).length === 0) {
+      try {
+        data = await req.json();
+      } catch {
+        data = {};
+      }
+    }
     user.fill(data);
     await user.save();
-    return res.json(user);
+    if (req.wantsJson() || req.isJson()) {
+      return res.json(user);
+    }
+    return res.redirect('/user');
+  }
+
+  @Post('/:id/update')
+  async updatePost(req: Request, res: ForgeResponse) {
+    return this.update(req, res);
   }
 
   @Delete('/:id')
@@ -67,6 +83,14 @@ export class UserController {
       return res.notFound('User not found');
     }
     await user.delete();
-    return res.noContent();
+    if (req.wantsJson() || req.isJson()) {
+      return res.noContent();
+    }
+    return res.redirect('/user');
+  }
+
+  @Post('/:id/delete')
+  async destroyPost(req: Request, res: ForgeResponse) {
+    return this.destroy(req, res);
   }
 }
