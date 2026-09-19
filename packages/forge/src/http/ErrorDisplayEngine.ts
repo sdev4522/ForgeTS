@@ -13,6 +13,23 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { env } from '../config/env.js';
+
+export interface DiagnosticLocation {
+  file: string;
+  displayPath: string;
+  line: number;
+  column: number;
+  lineText?: string;
+}
+
+export interface NormalizedDiagnostic {
+  name: string;
+  message: string;
+  location?: DiagnosticLocation;
+  snippet?: CodeSnippet | null;
+  stack?: string;
+}
 
 export interface StackFrame {
   raw: string;
@@ -99,18 +116,39 @@ export class ErrorDisplayEngine {
     // Determine status code if available
     const statusCode = typeof (err as any).statusCode === 'number' ? (err as any).statusCode : 500;
 
-    // 1. Parse raw stack frames first (to preserve real filesystem paths for snippet loading)
+    // 1. Extract structured compiler/build/syntax diagnostics if available
+    const diagnostics = this.extractDiagnostics(err);
+
+    // 2. Parse raw stack frames (to preserve real filesystem paths for snippet loading)
     const frames = this.parseStack(rawStack);
 
-    // 2. Locate the primary error frame (prefer first application frame, else first available frame)
-    const primaryFrame =
+    // 3. Locate the primary error frame (prefer first application frame, else first available frame)
+    let primaryFrame =
       frames.find((f) => f.isApp && f.file && f.line > 0) ||
       frames.find((f) => !f.isVendor && f.file && f.line > 0) ||
       frames.find((f) => f.file && f.line > 0);
 
-    const primarySnippet = primaryFrame
-      ? this.getCodeSnippet(primaryFrame.file, primaryFrame.line, primaryFrame.column)
-      : null;
+    let primarySnippet: CodeSnippet | null = null;
+
+    // If no stack frame was found, synthesize primary frame from the first diagnostic with location
+    const primaryDiag = diagnostics.find((d) => d.location && d.location.file && d.location.line > 0);
+    if (!primaryFrame && primaryDiag?.location) {
+      primaryFrame = {
+        raw: `${primaryDiag.name} at ${primaryDiag.location.file}:${primaryDiag.location.line}:${primaryDiag.location.column}`,
+        functionName: '<compiler/syntax>',
+        file: primaryDiag.location.file,
+        displayPath: primaryDiag.location.displayPath,
+        line: primaryDiag.location.line,
+        column: primaryDiag.location.column,
+        isApp: true,
+        isFramework: false,
+        isVendor: false,
+        snippet: primaryDiag.snippet,
+      };
+      primarySnippet = primaryDiag.snippet ?? null;
+    } else if (primaryFrame) {
+      primarySnippet = this.getCodeSnippet(primaryFrame.file, primaryFrame.line, primaryFrame.column);
+    }
 
     // Attach snippets to frames for interactive stack trace exploration
     for (const frame of frames) {
@@ -119,17 +157,18 @@ export class ErrorDisplayEngine {
       }
     }
 
-    // 3. Extract cause chain
+    // 4. Extract cause chain
     const causes = this.extractCauses(err);
 
-    // 4. Extract safe request context
+    // 5. Extract safe request context
     const requestDetails = this.extractRequestDetails(requestOrUrl, forgeReq);
 
-    // 5. Extract environment context
+    // 6. Extract environment context with authoritative appDebug
+    const appDebug = env.boolean('APP_DEBUG', false);
     const environment: EnvironmentDetails = {
       runtime: typeof Bun !== 'undefined' ? `Bun ${Bun.version}` : `Node ${process.version}`,
       nodeEnv: process.env.NODE_ENV ?? 'development',
-      appDebug: true,
+      appDebug,
       timezone: this.getTimezoneName(),
     };
 
@@ -143,6 +182,7 @@ export class ErrorDisplayEngine {
       causes,
       request: requestDetails,
       environment,
+      diagnostics,
     });
   }
 
@@ -263,6 +303,149 @@ export class ErrorDisplayEngine {
   </div>
 </body>
 </html>`;
+  }
+
+  // ─── Diagnostic & Compiler Error Extraction ───
+
+  /**
+   * Derive a clean relative path for display if the file is inside the workspace.
+   */
+  static getDisplayPath(filePath: string): string {
+    if (!filePath) return '';
+    const cwd = process.cwd();
+    let clean = filePath;
+    if (clean.startsWith('file://')) {
+      clean = clean.slice(7);
+    }
+    return clean.startsWith(cwd) ? clean.slice(cwd.length + 1) : clean;
+  }
+
+  /**
+   * Normalize and extract compiler, build, and syntax error diagnostics.
+   * Handles Bun BuildMessage, Bun AggregateError, Vite/Rollup/Oxc errors, and generic errors.
+   */
+  static extractDiagnostics(error: unknown): NormalizedDiagnostic[] {
+    if (!error) return [];
+    const list: NormalizedDiagnostic[] = [];
+    const err = error as any;
+
+    // Check if error is AggregateError or has child errors array
+    const childErrors: any[] = Array.isArray(err.errors) && err.errors.length > 0
+      ? err.errors
+      : [err];
+
+    // Check if parent message mentions file (e.g. `2 errors building "/path/to/file.ts"`)
+    const parentFileMatch = typeof err.message === 'string'
+      ? err.message.match(/(?:errors?\s+building|in|at)\s+["']?([^"'\s\n]+\.[a-zA-Z0-9]+)["']?/i)
+      : null;
+    const fallbackFile = parentFileMatch ? parentFileMatch[1] : undefined;
+
+    for (const item of childErrors) {
+      if (!item) continue;
+      const name = item.name || (item.constructor ? item.constructor.name : 'Error');
+      const rawMsg = item.message || String(item);
+      const message = this.redactSecrets(rawMsg);
+
+      let file: string | undefined =
+        item.position?.file ||
+        item.loc?.file ||
+        item.file ||
+        (typeof item.id === 'string' && !item.id.includes('\0') ? item.id : undefined) ||
+        fallbackFile;
+
+      let line: number | undefined =
+        item.position?.line ??
+        item.loc?.line ??
+        (typeof item.line === 'number' && item.line > 0 ? item.line : undefined);
+
+      let column: number | undefined =
+        item.position?.column ??
+        item.loc?.column ??
+        (typeof item.column === 'number' && item.column > 0 ? item.column : undefined);
+
+      let lineText: string | undefined = item.position?.lineText || item.frame;
+
+      // Match in message if file or line is missing
+      if (!file || line === undefined) {
+        const match = rawMsg.match(/([^\s:()]+):(\d+):(\d+)/);
+        if (match) {
+          file = file || match[1];
+          line = line ?? parseInt(match[2], 10);
+          column = column ?? parseInt(match[3], 10);
+        }
+      }
+
+      if (file && file.startsWith('file://')) {
+        file = file.slice(7);
+      }
+
+      let location: DiagnosticLocation | undefined;
+      let snippet: CodeSnippet | null = null;
+
+      if (file && line !== undefined && line > 0) {
+        location = {
+          file,
+          displayPath: this.getDisplayPath(file),
+          line,
+          column: column && column > 0 ? column : 1,
+          lineText,
+        };
+        snippet = this.getCodeSnippet(file, line, location.column);
+      } else if (file && lineText) {
+        location = {
+          file,
+          displayPath: this.getDisplayPath(file),
+          line: 1,
+          column: column && column > 0 ? column : 1,
+          lineText,
+        };
+      }
+
+      list.push({
+        name,
+        message,
+        location,
+        snippet,
+        stack: item.stack ? this.redactSecrets(item.stack) : undefined,
+      });
+    }
+
+    return list;
+  }
+
+  /**
+   * Helper to render code snippet box HTML.
+   */
+  private static renderSnippetHtml(snippet: CodeSnippet | null | undefined): string {
+    if (!snippet || !snippet.lines || snippet.lines.length === 0) {
+      return '';
+    }
+
+    let linesHtml = '';
+    for (const item of snippet.lines) {
+      const numStr = String(item.lineNum).padStart(4, ' ');
+      const escapedCode = this.escapeHtml(item.code);
+      if (item.isErrorLine) {
+        linesHtml += `<div class="code-line highlight"><span class="line-num">${numStr} |</span> <span class="line-code">${escapedCode}</span></div>`;
+        if (snippet.column > 0) {
+          const indent = ' '.repeat(Math.max(0, snippet.column - 1));
+          linesHtml += `<div class="code-line caret-line"><span class="line-num">     |</span> <span class="line-code"><span class="caret-marker">${indent}^</span></span></div>`;
+        }
+      } else {
+        linesHtml += `<div class="code-line"><span class="line-num">${numStr} |</span> <span class="line-code">${escapedCode}</span></div>`;
+      }
+    }
+
+    return `
+      <div class="snippet-box">
+        <div class="snippet-header">
+          <span class="snippet-icon">[Source]</span>
+          <span class="snippet-path">${this.escapeHtml(snippet.displayPath)}</span>
+          <span class="snippet-pos">:${snippet.line}:${snippet.column}</span>
+        </div>
+        <div class="snippet-body">${linesHtml}</div>
+      </div>
+    `;
   }
 
   // ─── Stack Trace Parsing ───
@@ -674,38 +857,12 @@ export class ErrorDisplayEngine {
     causes: ExceptionCause[];
     request: RequestDetails;
     environment: EnvironmentDetails;
+    diagnostics?: NormalizedDiagnostic[];
   }): string {
-    const { name, message, statusCode, primaryFrame, primarySnippet, frames, causes, request, environment } = data;
+    const { name, message, statusCode, primaryFrame, primarySnippet, frames, causes, request, environment, diagnostics } = data;
 
     // Build Code Snippet HTML
-    let snippetHtml = '';
-    if (primarySnippet && primarySnippet.lines.length > 0) {
-      let linesHtml = '';
-      for (const item of primarySnippet.lines) {
-        const numStr = String(item.lineNum).padStart(4, ' ');
-        const escapedCode = this.escapeHtml(item.code);
-        if (item.isErrorLine) {
-          linesHtml += `<div class="code-line highlight"><span class="line-num">${numStr} |</span> <span class="line-code">${escapedCode}</span></div>`;
-          if (primarySnippet.column > 0) {
-            const indent = ' '.repeat(Math.max(0, primarySnippet.column - 1));
-            linesHtml += `<div class="code-line caret-line"><span class="line-num">     |</span> <span class="line-code"><span class="caret-marker">${indent}^</span></span></div>`;
-          }
-        } else {
-          linesHtml += `<div class="code-line"><span class="line-num">${numStr} |</span> <span class="line-code">${escapedCode}</span></div>`;
-        }
-      }
-
-      snippetHtml = `
-        <div class="snippet-box">
-          <div class="snippet-header">
-            <span class="snippet-icon">[Source]</span>
-            <span class="snippet-path">${this.escapeHtml(primarySnippet.displayPath)}</span>
-            <span class="snippet-pos">:${primarySnippet.line}:${primarySnippet.column}</span>
-          </div>
-          <div class="snippet-body">${linesHtml}</div>
-        </div>
-      `;
-    }
+    const snippetHtml = this.renderSnippetHtml(primarySnippet);
 
     // Build Stack Trace Frames HTML
     let framesHtml = '';
@@ -878,6 +1035,76 @@ export class ErrorDisplayEngine {
       padding: 2.25rem;
       margin-bottom: 2rem;
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .multi-error-bar {
+      background: var(--card-bg);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .multi-error-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .multi-error-badge {
+      background: rgba(239, 68, 68, 0.25);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .multi-error-sub {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .diagnostic-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .diag-btn {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 0.45rem 0.8rem;
+      border-radius: 0.5rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.15s ease;
+    }
+    .diag-btn:hover {
+      border-color: #ef4444;
+      color: #ffffff;
+    }
+    .diag-btn.active {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: #ef4444;
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .diag-idx {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.25rem;
+      font-size: 0.7rem;
+    }
+    .diag-loc {
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+    }
+    .diagnostic-panel.hidden {
+      display: none !important;
     }
     .error-type {
       color: #f87171;
@@ -1142,10 +1369,53 @@ export class ErrorDisplayEngine {
       <div class="brand"><span>Forge</span>TS Debug Engine</div>
       <div class="badge-group">
         <span class="status-pill">${statusCode} ${this.getStatusText(statusCode)}</span>
-        <span class="env-pill">APP_DEBUG = TRUE</span>
+        <span class="env-pill">APP_DEBUG = ${environment.appDebug ? 'TRUE' : 'FALSE'}</span>
       </div>
     </div>
 
+    ${
+      diagnostics && diagnostics.length > 1
+        ? `
+    <div class="multi-error-bar">
+      <div class="multi-error-header">
+        <span class="multi-error-badge">${diagnostics.length} Build Errors</span>
+        <span class="multi-error-sub">Multiple compilation/syntax errors were reported. Select an error to inspect:</span>
+      </div>
+      <div class="diagnostic-nav">
+        ${diagnostics
+          .map(
+            (d, i) => `
+          <button class="diag-btn ${i === 0 ? 'active' : ''}" onclick="selectDiagnostic(${i})">
+            <span class="diag-idx">#${i + 1}</span>
+            <span class="diag-name">${this.escapeHtml(d.name)}</span>
+            <span class="diag-loc">${d.location ? this.escapeHtml(d.location.displayPath) + ':' + d.location.line : ''}</span>
+          </button>
+        `,
+          )
+          .join('')}
+      </div>
+    </div>
+
+    <div class="diagnostics-container">
+      ${diagnostics
+        .map(
+          (d, i) => `
+        <div id="diag-panel-${i}" class="hero-card diagnostic-panel ${i === 0 ? 'active' : 'hidden'}">
+          <div class="error-type">${this.escapeHtml(d.name)}</div>
+          <div class="error-message">${this.escapeHtml(d.message)}</div>
+          ${
+            d.location
+              ? `<div class="error-location">${this.escapeHtml(d.location.displayPath)}:${d.location.line}:${d.location.column}</div>`
+              : ''
+          }
+          ${this.renderSnippetHtml(d.snippet)}
+        </div>
+      `,
+        )
+        .join('')}
+    </div>
+    `
+        : `
     <div class="hero-card">
       <div class="error-type">${this.escapeHtml(name)}</div>
       <div class="error-message">${this.escapeHtml(message)}</div>
@@ -1156,6 +1426,8 @@ export class ErrorDisplayEngine {
       }
       ${snippetHtml}
     </div>
+    `
+    }
 
     ${causesHtml}
 
@@ -1226,7 +1498,7 @@ export class ErrorDisplayEngine {
         <table class="key-val-table">
           <tr><td class="key-col">Runtime</td><td class="val-col">${this.escapeHtml(environment.runtime)}</td></tr>
           <tr><td class="key-col">Environment (NODE_ENV)</td><td class="val-col">${this.escapeHtml(environment.nodeEnv)}</td></tr>
-          <tr><td class="key-col">Debug Mode (APP_DEBUG)</td><td class="val-col">true</td></tr>
+          <tr><td class="key-col">Debug Mode (APP_DEBUG)</td><td class="val-col">${environment.appDebug ? 'true' : 'false'}</td></tr>
           <tr><td class="key-col">Timezone</td><td class="val-col">${this.escapeHtml(environment.timezone)}</td></tr>
         </table>
       </div>
@@ -1250,6 +1522,19 @@ export class ErrorDisplayEngine {
       if (el) {
         el.style.display = el.style.display === 'none' ? 'block' : 'none';
       }
+    }
+
+    function selectDiagnostic(idx) {
+      document.querySelectorAll('.diag-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+      document.querySelectorAll('.diagnostic-panel').forEach((p, i) => {
+        if (i === idx) {
+          p.classList.remove('hidden');
+          p.classList.add('active');
+        } else {
+          p.classList.add('hidden');
+          p.classList.remove('active');
+        }
+      });
     }
   </script>
 </body>

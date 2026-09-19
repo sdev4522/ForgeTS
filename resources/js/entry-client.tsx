@@ -1,7 +1,8 @@
 // resources/js/entry-client.tsx
 // ─────────────────────────────────────────────────────────────────────
 // Universal Client-Side Hydration Entry Point for ForgeTS React SSR.
-// Deserializes initial server props and hydrates the DOM tree.
+// Framework-managed build entrypoint: developers do not need to modify
+// this file. Create or edit pages under resources/js/pages/ instead.
 // ─────────────────────────────────────────────────────────────────────
 
 import React from 'react';

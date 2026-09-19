@@ -66,7 +66,7 @@ describe('Database Failure Resilience & Fail-Fast Auditing', () => {
       port: 3306,
     });
 
-    const req = new globalThis.Request('http://example.test/api/todos', {
+    const req = new globalThis.Request('http://example.test/api/test', {
       headers: { accept: 'application/json' },
     });
 

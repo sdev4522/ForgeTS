@@ -142,6 +142,23 @@ Framework code and tests must never contain developer-specific absolute filesyst
 
 ---
 
+## Rule 10 — Prohibition on Default Application Demo Domains
+
+AI agents must NEVER add demonstration or example business domains (such as `Todo`, `Note`, `User`, `Log`, `Docs`, `Blog`) to the default application (`app/`, `routes/`, `database/migrations/`, `resources/js/pages/`) unless explicitly requested by the user.
+
+ForgeTS ships as a clean, production-oriented framework starter (mirroring `laravel/laravel` and `create-next-app`), NOT a demo showcase.
+
+- **No Fake Business Domains**: Do NOT add fake controllers, models, routes, or pages merely to demonstrate that framework features work.
+- **Pre-Creation Mandatory Question**: Before adding ANY new file to the default application, the agent must ask:
+  > *"Would a developer expect this file to exist in a fresh ForgeTS application?"*
+  If the answer is no, it must NOT be added to the default application.
+- **Framework Core Remains Generic**: Core framework internals (`packages/forge/src/`) must never contain application table names, hardcoded migrations, or demo entities.
+- **Examples Belong in Tests or Docs**: Framework integration tests must use internal/isolated test fixtures (e.g., `tests/fixtures/`, in-memory mock models, or `ExampleController`), never default application domain files.
+- **Single Welcome Entrypoint**: The default application provides exactly ONE welcome experience (`WelcomeController` rendering `resources/js/pages/welcome.tsx` inside `resources/views/app.html`). Do not introduce competing or redundant HTML views.
+- **Do Not Expose Plumbing**: Framework-managed SSR entrypoints (`entry-client.tsx`, `entry-server.tsx`) remain internal infrastructure; do not expose internal plumbing as developer-facing boilerplate.
+
+---
+
 ## Quick Self-Check Before Submitting Any Response
 
 - [ ] Did I only do what was asked in THIS task, nothing more?
@@ -150,6 +167,7 @@ Framework code and tests must never contain developer-specific absolute filesyst
 - [ ] Did I list exactly which files changed?
 - [ ] Did I verify zero emojis were introduced into code, logs, or documentation?
 - [ ] Did I verify no developer paths, machine-specific values, or uncontrolled localhost URLs were hardcoded?
+- [ ] Did I ensure NO demo business domains (Todo, Note, User, Log, Docs) were added to the default application?
 - [ ] Can this be verified right now, and did I say how?
 
 If any box is unchecked, fix it before responding.

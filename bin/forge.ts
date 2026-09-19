@@ -87,11 +87,11 @@ function registerWebRouteController(controllerName: string) {
 
   let content = readFileSync(webRoutesPath, 'utf-8');
   if (content.includes(controllerName)) {
-    console.log(`ℹ️  [ForgeTS CLI] ${controllerName} already registered in routes/web.ts`);
+    console.log(`[ForgeTS CLI] ${controllerName} already registered in routes/web.ts`);
     return;
   }
 
-  const importStatement = `import { ${controllerName} } from '../app/controllers/${controllerName}.js';\n`;
+  const importStatement = `import { ${controllerName} } from '@/controllers/${controllerName}.js';\n`;
   const routerControllerCall = `router.controller(${controllerName});\n`;
 
   if (content.includes('const router = new Router')) {
@@ -110,13 +110,43 @@ function registerWebRouteController(controllerName: string) {
   console.log(`[ForgeTS CLI] Registered ${controllerName} in routes/web.ts`);
 }
 
+function registerApiRouteController(controllerName: string) {
+  const apiRoutesPath = join(ROOT_DIR, 'routes', 'api.ts');
+  if (!existsSync(apiRoutesPath)) return;
+
+  let content = readFileSync(apiRoutesPath, 'utf-8');
+  if (content.includes(controllerName)) {
+    console.log(`[ForgeTS CLI] ${controllerName} already registered in routes/api.ts`);
+    return;
+  }
+
+  const importStatement = `import { ${controllerName} } from '@/controllers/${controllerName}.js';\n`;
+  const routerControllerCall = `router.controller(${controllerName});\n`;
+
+  if (content.includes('const router = new Router')) {
+    content = content.replace(/(const router = new Router)/, `${importStatement}$1`);
+  } else {
+    content = importStatement + content;
+  }
+
+  if (content.includes('export default router;')) {
+    content = content.replace(/(export default router;)/, `${routerControllerCall}$1`);
+  } else {
+    content += `\n${routerControllerCall}`;
+  }
+
+  writeFileSync(apiRoutesPath, content, 'utf-8');
+  console.log(`[ForgeTS CLI] Registered ${controllerName} in routes/api.ts`);
+}
+
 async function runCommand() {
   switch (command) {
+    case 'dev':
     case 'serve': {
-      console.log('[ForgeTS] Starting development server...');
-      const proc = Bun.spawn(['bun', '--watch', 'run', 'bin/serve.ts'], {
+      const proc = Bun.spawn([process.execPath, 'run', 'bin/serve.ts'], {
         stdout: 'inherit',
         stderr: 'inherit',
+        stdin: 'inherit',
       });
       await proc.exited;
       break;
@@ -124,9 +154,10 @@ async function runCommand() {
 
     case 'make:controller': {
       if (!targetName) {
-        console.error('[ForgeTS CLI] Error: Usage: forge make:controller <ControllerName>');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:controller <ControllerName> [--api]');
         process.exit(1);
       }
+      const isApi = args.includes('--api');
       const className = toPascalCase(targetName).endsWith('Controller')
         ? toPascalCase(targetName)
         : `${toPascalCase(targetName)}Controller`;
@@ -166,6 +197,9 @@ export class ${className} {
 }
 `;
       createFile(filePath, template, 'Controller');
+      if (isApi) {
+        registerApiRouteController(className);
+      }
       break;
     }
 
@@ -347,7 +381,7 @@ export async function down(db: Kysely<any>): Promise<void> {
         // 3. Controller (overwrite safe)
         const controllerPath = join(ROOT_DIR, 'app', 'controllers', `${controllerName}.ts`);
         const controllerTemplate = `import { Controller, Get, Post, Request, ForgeResponse, now } from '@forge/core';
-import { ${singularPascal} } from '../models/${singularPascal}.js';
+import { ${singularPascal} } from '@/models/${singularPascal}.js';
 
 @Controller('/${pluralSnake}')
 export class ${controllerName} {
@@ -592,16 +626,17 @@ export default function ${singularPascal}Page() {
       const routes = app.getRoutes();
 
       console.log('\n  Registered Routes');
-      console.log('  ┌────────┬───────────────────────────────┬──────────────────────────────┐');
-      console.log('  │ Method │ Path                          │ Handler                      │');
-      console.log('  ├────────┼───────────────────────────────┼──────────────────────────────┤');
+      console.log('  ┌──────┬────────┬───────────────────────────────┬──────────────────────────────┐');
+      console.log('  │ Type │ Method │ Path                          │ Handler                      │');
+      console.log('  ├──────┼────────┼───────────────────────────────┼──────────────────────────────┤');
       for (const route of routes) {
+        const type = (route.type ?? (route.fullPath.startsWith('/api') ? 'api' : 'web')).toUpperCase().padEnd(4);
         const method = route.method.padEnd(6);
         const path = route.fullPath.padEnd(29);
         const handler = `${route.controllerClass.name}@${String(route.handlerName)}`.padEnd(28);
-        console.log(`  │ ${method} │ ${path} │ ${handler} │`);
+        console.log(`  │ ${type} │ ${method} │ ${path} │ ${handler} │`);
       }
-      console.log('  └────────┴───────────────────────────────┴──────────────────────────────┘\n');
+      console.log('  └──────┴────────┴───────────────────────────────┴──────────────────────────────┘\n');
       break;
     }
 
@@ -650,7 +685,7 @@ ForgeTS CLI Scaffolding Tool v0.1.0
 
 Available Commands:
   forge serve                            Start dev server with Bun hot reload
-  forge make:controller <ControllerName> Scaffold an HTTP controller
+  forge make:controller <ControllerName> Scaffold an HTTP controller [--api]
   forge make:model <ModelName>           Scaffold an Active Record model [--migration]
   forge make:page <PageName> [--crud]    Scaffold React page(s) + full CRUD flow
   forge make:service <ServiceName>       Scaffold an @Injectable() business service

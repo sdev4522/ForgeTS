@@ -29,12 +29,17 @@ env.number = (key: string, defaultValue: number = 0): number => {
 
 /**
  * Read an environment variable as a boolean.
- * Truthy values: `"true"`, `"1"`, `"yes"`, `"on"` (case-insensitive).
+ * Truthy values: `"true"`, `"1"`, `"yes"`, `"on"` (case-insensitive, trimmed).
+ * Falsy values: `"false"`, `"0"`, `"no"`, `"off"` (case-insensitive, trimmed).
+ * Returns `defaultValue` if unset or unrecognized.
  */
 env.boolean = (key: string, defaultValue: boolean = false): boolean => {
   const raw = process.env[key];
   if (raw === undefined) return defaultValue;
-  return ['true', '1', 'yes', 'on'].includes(raw.toLowerCase());
+  const val = raw.trim().toLowerCase();
+  if (['false', '0', 'no', 'off'].includes(val)) return false;
+  if (['true', '1', 'yes', 'on'].includes(val)) return true;
+  return defaultValue;
 };
 
 /**

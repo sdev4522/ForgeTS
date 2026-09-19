@@ -16,6 +16,7 @@ export {
   UnauthorizedException,
   ForbiddenException,
   BadRequestException,
+  UnprocessableEntityException,
 } from './core/Application.js';
 
 // ─── HTTP ───
@@ -55,6 +56,7 @@ export { Injectable, type InjectableOptions } from './container/decorators.js';
 export { env } from './config/env.js';
 export { defineConfig } from './config/defineConfig.js';
 export { config, initConfig, getConfigManager } from './config/ConfigManager.js';
+export { bootstrapEnv, resetBootstrapEnv } from './config/bootstrapEnv.js';
 
 // ─── View ───
 export { ViewEngine } from './view/ViewEngine.js';

@@ -43,7 +43,7 @@ my-app/
 ├── public/                # Static assets (CSS, JS, images, favicon)
 ├── resources/
 │   ├── js/                # React SSR pages, components, and client entry
-│   └── views/             # Server-rendered HTML templates (.html)
+│   └── views/             # Master React SSR shell document (app.html)
 ├── routes/
 │   ├── api.ts             # API route definitions (/api)
 │   └── web.ts             # Web page route definitions (/)
@@ -96,26 +96,24 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 Controllers handle HTTP requests and return typed responses or views:
 
 ```typescript
-// app/controllers/UserController.ts
+// app/controllers/PostController.ts
 import { Controller, Get, Post, Middleware } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
-import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
-import { User } from '../models/User.js';
+import { Post as PostModel } from '../models/Post.js';
 
-@Controller('/users')
-@Middleware(AuthMiddleware)
-export class UserController {
+@Controller('/posts')
+export class PostController {
   @Get('/')
   async index(_req: Request, res: ForgeResponse) {
-    const users = await User.all();
-    return res.json(users);
+    const posts = await PostModel.all();
+    return res.json(posts);
   }
 
   @Get('/:id')
   async show(req: Request, res: ForgeResponse) {
-    const user = await User.find(req.params.id);
-    if (!user) return res.notFound('User not found');
-    return res.json(user);
+    const post = await PostModel.find(req.params.id);
+    if (!post) return res.notFound('Post not found');
+    return res.json(post);
   }
 }
 ```
@@ -123,53 +121,57 @@ export class UserController {
 Register controllers in `routes/api.ts` or `routes/web.ts`:
 
 ```typescript
-// routes/api.ts
-import { Router } from '@forge/core';
-import { UserController } from '../app/controllers/UserController.js';
+// routes/web.ts
+import { Router, CsrfMiddleware } from '@forge/core';
+import { WelcomeController } from '../app/controllers/WelcomeController.js';
 
 const router = new Router();
 
-router.group({ prefix: '/api/v1' }, () => {
-  router.controller(UserController);
-});
+router.middleware(CsrfMiddleware);
+router.controller(WelcomeController);
 
 export default router;
 ```
 
 ---
 
-### 2. Views (React SSR & HTML View Engine)
+### 2. Views & React Server-Side Rendering
 
-#### React Server-Side Rendering
-Pages located under `resources/js/pages/*.tsx` are rendered server-side and hydrated on the client:
+Pages located under `resources/js/pages/*.tsx` are rendered server-side and hydrated on the client via the `resources/views/app.html` shell:
 
 ```typescript
-// app/controllers/TodoController.ts
+// app/controllers/WelcomeController.ts
 import { Controller, Get, Request, ForgeResponse } from '@forge/core';
-import { Todo } from '../models/Todo.js';
 
-@Controller('/todos')
-export class TodoController {
+@Controller('/')
+export class WelcomeController {
   @Get('/')
-  async index(_req: Request, res: ForgeResponse) {
-    const todos = await Todo.all();
-    return res.view('todos/index', { todos });
+  async welcome(_req: Request, res: ForgeResponse) {
+    return res.view('welcome', {
+      appName: 'My Application',
+    }).meta({
+      title: 'Welcome to ForgeTS',
+      description: 'High-performance TypeScript web framework on Bun',
+    });
   }
 }
 ```
 
-#### Built-in HTML View Engine
-Alternatively, plain HTML templates located in `resources/views/` can be rendered with `{{ var }}` syntax:
+#### Master SSR Shell Document
+The React SSR engine mounts rendered components inside `resources/views/app.html`:
 
 ```html
-<!-- resources/views/welcome.html -->
+<!-- resources/views/app.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <link rel="stylesheet" href="/css/welcome.css">
+  <meta charset="UTF-8">
+  <title><!-- FORGETS_TITLE --></title>
 </head>
 <body>
-  <h1>Welcome to ForgeTS v{{{ version }}}</h1>
+  <div id="root"><!-- FORGETS_APP --></div>
+  <script type="application/json" id="__FORGETS_DATA__"><!-- FORGETS_DATA --></script>
+  <script type="module" src="/resources/js/entry-client.tsx"></script>
 </body>
 </html>
 ```

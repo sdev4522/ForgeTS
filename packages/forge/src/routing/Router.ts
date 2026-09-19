@@ -27,6 +27,7 @@ export interface RegisteredRoute {
   controllerClass: new (...args: any[]) => any;
   handlerName: string | symbol;
   middleware: MiddlewareClass[];
+  type?: 'web' | 'api';
 }
 
 export interface RouteGroupOptions {
@@ -152,72 +153,89 @@ export class Router {
   }
 
   /**
-   * Register a standalone route without a controller class.
-   * Useful for simple health checks or one-off routes.
+   * Register a route with a handler function or controller action.
    *
    * @example
    * ```ts
    * router.get('/ping', (req, res) => res.text('pong'));
+   * router.get('/users', UserController, 'index');
+   * router.get('/users', [UserController, 'index']);
    * ```
    */
-  get(
-    path: string,
-    handler: (req: any, res: any) => any,
-    middleware: MiddlewareClass[] = [],
-  ): this {
-    return this.addStandaloneRoute('GET', path, handler, middleware);
+  get(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
+  get(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
+  get(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
+  get(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+    return this.addRoute('GET', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  post(
-    path: string,
-    handler: (req: any, res: any) => any,
-    middleware: MiddlewareClass[] = [],
-  ): this {
-    return this.addStandaloneRoute('POST', path, handler, middleware);
+  post(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
+  post(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
+  post(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
+  post(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+    return this.addRoute('POST', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  put(
-    path: string,
-    handler: (req: any, res: any) => any,
-    middleware: MiddlewareClass[] = [],
-  ): this {
-    return this.addStandaloneRoute('PUT', path, handler, middleware);
+  put(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
+  put(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
+  put(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
+  put(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+    return this.addRoute('PUT', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  patch(
-    path: string,
-    handler: (req: any, res: any) => any,
-    middleware: MiddlewareClass[] = [],
-  ): this {
-    return this.addStandaloneRoute('PATCH', path, handler, middleware);
+  patch(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
+  patch(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
+  patch(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
+  patch(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+    return this.addRoute('PATCH', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  delete(
-    path: string,
-    handler: (req: any, res: any) => any,
-    middleware: MiddlewareClass[] = [],
-  ): this {
-    return this.addStandaloneRoute('DELETE', path, handler, middleware);
+  delete(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
+  delete(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
+  delete(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
+  delete(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+    return this.addRoute('DELETE', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  private addStandaloneRoute(
+  private addRoute(
     method: HttpMethod,
     path: string,
-    handler: Function,
-    middleware: MiddlewareClass[],
+    target: any,
+    actionOrMiddleware?: any,
+    maybeMiddleware: MiddlewareClass[] = [],
   ): this {
-    const fullPath = this.normalizePath(this.currentPrefix + (path.startsWith('/') ? path : `/${path}`));
+    let controllerClass: new (...args: any[]) => any;
+    let handlerName: string | symbol = 'handle';
+    let middleware: MiddlewareClass[] = [];
 
-    // Create an anonymous controller-like wrapper
-    const StandaloneController = class {
-      handle = handler;
-    };
+    if (Array.isArray(target) && target.length >= 2 && typeof target[0] === 'function') {
+      controllerClass = target[0];
+      handlerName = target[1];
+      middleware = Array.isArray(actionOrMiddleware) ? actionOrMiddleware : [];
+    } else if (typeof target === 'function' && typeof actionOrMiddleware === 'string') {
+      controllerClass = target;
+      handlerName = actionOrMiddleware;
+      middleware = Array.isArray(maybeMiddleware) ? maybeMiddleware : [];
+    } else if (typeof target === 'function') {
+      const StandaloneController = class {
+        handle = target;
+      };
+      controllerClass = StandaloneController as any;
+      handlerName = 'handle';
+      middleware = Array.isArray(actionOrMiddleware) ? actionOrMiddleware : [];
+    } else {
+      throw new Error(`[ForgeTS] Invalid route handler provided for ${method} ${path}`);
+    }
+
+    const fullPath = this.normalizePath(
+      this.currentPrefix + (path.startsWith('/') ? path : `/${path}`),
+    );
 
     this.routes.push({
       method,
       fullPath,
-      controllerClass: StandaloneController as any,
-      handlerName: 'handle',
+      controllerClass,
+      handlerName,
       middleware: [...this.currentMiddleware, ...middleware],
     });
 

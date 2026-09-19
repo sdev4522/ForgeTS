@@ -1,6 +1,8 @@
 // resources/js/entry-server.tsx
 // ─────────────────────────────────────────────────────────────────────
 // Server-Side Rendering Entry Point for Production Build.
+// Framework-managed SSR entrypoint: developers do not need to modify
+// this file. Create or edit pages under resources/js/pages/ instead.
 // ─────────────────────────────────────────────────────────────────────
 
 import React from 'react';

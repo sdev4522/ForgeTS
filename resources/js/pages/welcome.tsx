@@ -634,10 +634,7 @@ export default function WelcomePage({
             <span className="fw-version-tag">v{version}</span>
           </a>
           <nav className="fw-nav">
-            <a href="/docs" className="fw-nav-link">Documentation</a>
-            <a href="/todos" className="fw-nav-link">Reference App</a>
-            <a href="/docs/routing" className="fw-nav-link">Routing</a>
-            <a href="/docs/cli" className="fw-nav-link">CLI</a>
+            <a href="/about" className="fw-nav-link">About</a>
             <a href="/docs" className="fw-nav-cta">Get Started</a>
           </nav>
         </div>
@@ -652,7 +649,7 @@ export default function WelcomePage({
           </div>
           <h1 className="fw-hero-title">
             The structure of Laravel.<br />
-            The speed of <span className="fw-hero-highlight">Bun &amp; TypeScript</span>.
+            The speed of <span className="fw-hero-highlight">Bun &amp; TypeScript — Vite HMR Preserved</span>.
           </h1>
           <p className="fw-hero-subtitle">
             ForgeTS is a batteries-included, TypeScript-first web framework designed for developer velocity.

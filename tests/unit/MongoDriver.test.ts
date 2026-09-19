@@ -2,7 +2,7 @@
 import '../../packages/forge/src/polyfills.js';
 import { describe, test, expect, beforeAll } from 'bun:test';
 import { MongoDriver } from '../../packages/forge/src/database/MongoDriver.js';
-import { LogEntry } from '../../app/models/LogEntry.js';
+import { Model, Column } from '../../packages/forge/src/database/index.js';
 import { setMongoDriver } from '../../packages/forge/src/database/Connection.js';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
@@ -87,6 +87,17 @@ class MemoryMongoDriver extends MongoDriver {
   }
 }
 
+class TestLogEntry extends Model {
+  static override table = 'log_entries';
+  static override connection = 'mongodb';
+  static override fillable = ['level', 'message', 'context', 'created_at', 'updated_at'];
+
+  @Column() declare id: string;
+  @Column() declare level: string;
+  @Column() declare message: string;
+  @Column() declare context: Record<string, any>;
+}
+
 describe('MongoDB Driver & Active Record Integration', () => {
   beforeAll(() => {
     const configManager = initConfig(process.cwd());
@@ -101,27 +112,27 @@ describe('MongoDB Driver & Active Record Integration', () => {
     expect(badDriver.connect()).rejects.toThrow('[ForgeTS Mongo Connection Failure]');
   });
 
-  test('2. Mongo LogEntry Model CRUD via identical Active Record API', async () => {
+  test('2. Mongo Document Model CRUD via identical Active Record API', async () => {
     // Create
-    const entry = await LogEntry.create({
+    const entry = await TestLogEntry.create({
       level: 'info',
       message: 'Application started successfully',
       context: { env: 'production' },
     });
 
-    expect(entry).toBeInstanceOf(LogEntry);
+    expect(entry).toBeInstanceOf(TestLogEntry);
     expect(entry.level).toBe('info');
     expect(entry.message).toBe('Application started successfully');
     expect(entry.id).toBeDefined();
 
     // Query with where & orderBy
-    const results = await LogEntry.where('level', '=', 'info').orderBy('created_at', 'desc').get();
+    const results = await TestLogEntry.where('level', '=', 'info').orderBy('created_at', 'desc').get();
     expect(results).toBeArray();
     expect(results.length).toBe(1);
     expect(results[0].id).toBe(entry.id);
 
     // Find
-    const found = await LogEntry.find(entry.id);
+    const found = await TestLogEntry.find(entry.id);
     expect(found).not.toBeNull();
     expect(found?.message).toBe('Application started successfully');
 
@@ -129,12 +140,12 @@ describe('MongoDB Driver & Active Record Integration', () => {
     entry.fill({ message: 'Updated Log Message' });
     await entry.save();
 
-    const updated = await LogEntry.find(entry.id);
+    const updated = await TestLogEntry.find(entry.id);
     expect(updated?.message).toBe('Updated Log Message');
 
     // Delete
     await entry.delete();
-    const deleted = await LogEntry.find(entry.id);
+    const deleted = await TestLogEntry.find(entry.id);
     expect(deleted).toBeNull();
   });
 });

@@ -105,36 +105,39 @@ my-framework/
 │           ├── view/                # ViewEngine template renderer
 │           └── config/              # ConfigManager & env loader
 │
-├── app/                             # Application Domain Layer
-│   ├── controllers/                 # HTTP Controllers (e.g. TodoController.ts, WelcomeController.ts)
-│   ├── models/                      # Active Record Models (e.g. Todo.ts)
-│   ├── services/                    # Application Services (e.g. LoggerService.ts)
+├── app/                             # Application Domain Layer (Clean Starter)
+│   ├── controllers/                 # HTTP Controllers (WelcomeController.ts)
+│   ├── models/                      # Active Record Models
+│   ├── services/                    # Application Services (@Injectable classes)
 │   └── middleware/                  # HTTP Middleware classes
 │
 ├── routes/                          # Route Definitions
-│   ├── web.ts                       # HTML Web Routes
+│   ├── web.ts                       # HTML Web Routes (WelcomeController)
 │   └── api.ts                       # JSON API Routes
 │
 ├── resources/
-│   └── views/                       # Server-Rendered HTML Templates
-│       ├── welcome.html             # Framework Welcome Page
-│       └── todos/
-│           └── index.html           # Todo Application UI Template
+│   ├── js/                          # React SSR
+│   │   ├── pages/                   # React SSR Pages (welcome.tsx)
+│   │   ├── entry-client.tsx         # Client Hydration Entrypoint
+│   │   └── entry-server.tsx         # SSR Production Build Entrypoint
+│   └── views/                       # Server HTML Shells
+│       └── app.html                 # Master React SSR Shell Document
 │
 ├── database/
 │   └── migrations/                  # Database Schema Migrations
-│       └── 2026_07_29_000001_create_todos_table.ts
 │
 ├── config/                          # Application Configuration
 │   ├── app.ts                       # App Name, Port, Env config
-│   └── database.ts                  # Database connection settings (MySQL / SQLite / Postgres)
+│   └── database.ts                  # Database connection settings (MySQL / Mongo)
 │
 ├── public/                          # Static Web Assets (CSS, Images, Favicons)
 ├── storage/                         # Runtime logs, uploads, and cached artifacts
 ├── bootstrap/
-│   └── app.ts                       # Application Wiring & Bootstrap
+│   ├── app.ts                       # Application Wiring & Bootstrap
+│   └── env.ts                       # Early Environment Bootstrapper
 └── bin/
-    ├── serve.ts                     # HTTP Server Launcher (bun run dev / forge serve)
+    ├── dev.ts                       # Development Supervisor with Auto-Restart (bun run dev / forge dev)
+    ├── serve.ts                     # Standalone HTTP Server Launcher (bun run serve / forge serve)
     └── forge.ts                     # Framework CLI Tool
 ```
 
@@ -145,6 +148,7 @@ my-framework/
 | Category | Feature | Status |
 |---|---|---|
 | **Runtime** | Bun 1.3+ Native HTTP Server (`Bun.serve()`) | Fully Implemented |
+| **Development DX** | Native Development Supervisor (auto-restart backend, Vite HMR frontend) | Fully Implemented |
 | **Routing** | Radix Trie, Params (`:id`), Verbs, Static Assets (`public/`) | Fully Implemented |
 | **Decorators** | TC39 Stage 3 (`@Controller`, `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`) | Fully Implemented |
 | **DI Container** | Recursive Constructor Injection & Singleton Lifecycle | Fully Implemented |
@@ -155,16 +159,17 @@ my-framework/
 | **Error Handling** | Global Error Handler & Debug Trace Renderer (`APP_DEBUG`) | Fully Implemented |
 | **Security** | CSRF middleware, rate limiting, and process secret redaction | Fully Implemented |
 | **Events** | Deterministic synchronous and asynchronous event dispatching | Fully Implemented |
-| **Dogfood App** | Full Todo App (HTML UI & React SSR) and Notes CRUD on MySQL | Verified & Live |
+| **Starter Skeleton** | Minimal framework starter with zero demo domains & React SSR welcome page | Verified & Live |
 
 ---
 
-## 5. Execution Flow Example: `POST /todos/create`
+## 5. Execution Flow Example: `GET /`
 
-1. **Client Action**: Browser submits HTML form at `/todos/create` with `title=Buy+groceries`.
+1. **Client Action**: Browser navigates to `http://localhost:3000/`.
 2. **Server Listen**: `Bun.serve()` receives `globalThis.Request`.
-3. **Route Match**: `RouteResolver` matches `POST /todos/create` to `TodoController.createForm`.
-4. **Body Parsing**: `Application` detects `x-www-form-urlencoded` and parses body into `req.body()`.
-5. **Controller Resolution**: `Container` resolves `TodoController` instance.
-6. **ORM Save**: `Todo.create({ title, completed: 0, created_at })` runs Kysely `INSERT` query via `mysql2` pool on MySQL database `forgets`.
-7. **Response**: `res.redirect('/todos/ui')` returns `302 Found` to browser.
+3. **Route Match**: `RouteResolver` matches `GET /` to `WelcomeController.welcome`.
+4. **Middleware Pipeline**: `CsrfMiddleware` verifies/issues session token cookie.
+5. **Controller Resolution**: `Container` resolves `WelcomeController` instance.
+6. **SSR Rendering**: `WelcomeController` calls `res.view('welcome', { ... })`. `ReactEngine` renders `resources/js/pages/welcome.tsx` to static markup and mounts it within the `resources/views/app.html` shell.
+7. **Response**: `ForgeResponse` delivers `200 OK` with full server-rendered HTML document.
+8. **Client Hydration**: Client script `resources/js/entry-client.tsx` hydrates the DOM tree using serialized `__FORGETS_DATA__`.

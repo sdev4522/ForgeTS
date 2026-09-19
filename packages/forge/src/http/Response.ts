@@ -89,14 +89,14 @@ export class ForgeResponse {
   /**
    * Render a view template or React SSR page.
    *
-   * @param template Template name (e.g., 'todos/index' → resources/js/pages/todos/index.tsx)
+   * @param template Template name (e.g., 'welcome' → resources/js/pages/welcome.tsx)
    * @param data Data to interpolate into the template or pass as props to React component
    *
    * @example
    * ```ts
-   * return res.view('todos/index', { todos }).meta({
-   *   title: 'All Todos',
-   *   description: 'Browse all todos',
+   * return res.view('welcome', { appName: 'My App' }).meta({
+   *   title: 'Welcome to ForgeTS',
+   *   description: 'My application landing page',
    * });
    * ```
    */
@@ -216,6 +216,16 @@ export class ForgeResponse {
   forbidden(message: string = 'Forbidden'): this {
     this._status = 403;
     return this.json({ error: message, statusCode: 403 });
+  }
+
+  /** 422 Unprocessable Entity. */
+  unprocessable(message: string = 'The given data was invalid.', errors?: unknown): this {
+    this._status = 422;
+    return this.json({
+      message,
+      statusCode: 422,
+      ...(errors ? { errors } : {}),
+    });
   }
 
   /** 500 Internal Server Error. */

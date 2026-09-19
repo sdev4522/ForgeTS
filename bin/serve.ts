@@ -6,12 +6,38 @@
 // launches the Emergency Debug Server to render the error to the browser.
 // ─────────────────────────────────────────────────────────────────────
 
-import { ErrorDisplayEngine } from '@forge/core';
+import { ErrorDisplayEngine, bootstrapEnv } from '@forge/core';
+import { DevSupervisor } from './dev.js';
+
+bootstrapEnv();
+
+let activeApp: { stop: () => Promise<void> } | null = null;
+let emergencyServer: ReturnType<typeof Bun.serve> | null = null;
+
+async function handleShutdown() {
+  try {
+    if (activeApp) {
+      await activeApp.stop();
+      activeApp = null;
+    }
+    if (emergencyServer) {
+      emergencyServer.stop(true);
+      emergencyServer = null;
+    }
+  } catch {
+    // Non-fatal cleanup
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', handleShutdown);
+process.on('SIGINT', handleShutdown);
 
 async function serve() {
   try {
     const appModule = await import('../bootstrap/app.js');
     const app = appModule.default;
+    activeApp = app;
     await app.start();
   } catch (err: unknown) {
     console.error('\n[ForgeTS] Startup / Compilation Error:');
@@ -23,30 +49,54 @@ async function serve() {
     if (isDebug) {
       console.log(`[ForgeTS] Emergency Debug Server running at http://localhost:${port}\n`);
 
-      Bun.serve({
-        port,
-        fetch(req: Request) {
-          const accept = req.headers.get('accept') ?? '';
-          if (accept.includes('application/json') && !accept.includes('text/html')) {
-            const e = err instanceof Error ? err : new Error(String(err));
-            return Response.json(
-              {
-                error: e.message,
-                name: e.name,
-                stack: e.stack ? e.stack.split('\n').map((l) => l.trim()) : [],
-              },
-              { status: 500 },
-            );
-          }
-          const html = ErrorDisplayEngine.renderHtml(err, req.url);
-          return new Response(html, {
-            status: 500,
-            headers: { 'Content-Type': 'text/html; charset=utf-8' },
-          });
-        },
-      });
+      try {
+        emergencyServer = Bun.serve({
+          port,
+          fetch(req: Request) {
+            const accept = req.headers.get('accept') ?? '';
+            if (accept.includes('application/json') && !accept.includes('text/html')) {
+              const e = err instanceof Error ? err : new Error(String(err));
+              return Response.json(
+                {
+                  error: e.message,
+                  name: e.name,
+                  stack: e.stack ? e.stack.split('\n').map((l) => l.trim()) : [],
+                },
+                { status: 500 },
+              );
+            }
+            const html = ErrorDisplayEngine.renderHtml(err, req.url);
+            return new Response(html, {
+              status: 500,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' },
+            });
+          },
+        });
+      } catch (serveErr: any) {
+        if (serveErr?.code === 'EADDRINUSE' || String(serveErr?.message).includes('address already in use')) {
+          console.error(`\n[ForgeTS] Emergency Debug Server failed: Port ${port} is already in use by another process.\n`);
+      }
     }
   }
 }
+}
 
-serve();
+if (process.env.NODE_ENV !== 'production' && process.env.FORGETS_WORKER !== '1') {
+  const supervisor = new DevSupervisor({
+    entryFile: import.meta.filename,
+    env: { ...process.env, FORGETS_WORKER: '1' },
+  });
+
+  const handleTermination = async () => {
+    await supervisor.stop();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', handleTermination);
+  process.on('SIGTERM', handleTermination);
+
+  supervisor.start();
+} else {
+  serve();
+}
+

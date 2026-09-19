@@ -85,6 +85,12 @@ export function resetDatabaseConnection(): void {
  */
 export async function verifyDatabaseConnectionOnBoot(): Promise<void> {
   const defaultConn = config<string>('database.default', 'mysql');
+
+  // Applications without a database or with DB_CONNECTION=none skip verification
+  if (!defaultConn || defaultConn === 'none' || defaultConn === 'null') {
+    return;
+  }
+
   const connConfig = config<any>(`database.connections.${defaultConn}`);
 
   if (!connConfig) {
@@ -105,31 +111,6 @@ export async function verifyDatabaseConnectionOnBoot(): Promise<void> {
     if (connConfig.driver === 'mysql') {
       const db = getDatabaseConnection();
       await (db as any).executeQuery({ sql: 'SELECT 1;', parameters: [], query: {} });
-
-      // Auto-ensure default app schema tables (todos, notes) exist on MySQL startup
-      try {
-        await (db as any).executeQuery({
-          sql: `CREATE TABLE IF NOT EXISTS todos (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(255) NOT NULL,
-            completed TINYINT(1) DEFAULT 0,
-            created_at VARCHAR(255)
-          );`,
-          parameters: [],
-          query: {},
-        });
-
-        await (db as any).executeQuery({
-          sql: `CREATE TABLE IF NOT EXISTS notes (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(255) NOT NULL,
-            content TEXT,
-            created_at VARCHAR(255)
-          );`,
-          parameters: [],
-          query: {},
-        });
-      } catch {}
     } else if (connConfig.driver === 'mongodb') {
       const mongo = getMongoDriver();
       await mongo.connect();

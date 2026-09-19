@@ -25,6 +25,7 @@ import { ForgeResponse } from '../http/Response.js';
 import { ErrorDisplayEngine } from '../http/ErrorDisplayEngine.js';
 import { executePipeline } from '../http/Pipeline.js';
 import { initConfig, getConfigManager, type ConfigManager } from '../config/ConfigManager.js';
+import { env } from '../config/env.js';
 import { ViewEngine } from '../view/ViewEngine.js';
 import { ReactEngine } from '../ssr/ReactEngine.js';
 import { getTimezone } from './time.js';
@@ -53,6 +54,7 @@ export class Application {
   private providers: Provider[] = [];
   private globalMiddleware: MiddlewareClass[] = [];
   private booted = false;
+  private server: ReturnType<typeof Bun.serve> | null = null;
 
   constructor(private rootDir: string = process.cwd()) {
     this.container = new Container();
@@ -122,12 +124,43 @@ export class Application {
   /**
    * Register routes from a Router instance.
    * Reads the route definitions and adds them to the radix trie.
+   * Supports optional prefix, group middleware, and route type ('web' | 'api').
    */
-  registerRoutes(router: Router): this {
+  registerRoutes(
+    router: Router,
+    options?: { prefix?: string; middleware?: MiddlewareClass[]; type?: 'web' | 'api' } | string,
+  ): this {
+    const opts = typeof options === 'string' ? { prefix: options } : (options ?? {});
+    const prefix = opts.prefix ? this.normalizePath(opts.prefix) : '';
+    const extraMiddleware = opts.middleware ?? [];
+    const routeType = opts.type ?? (prefix.startsWith('/api') ? 'api' : 'web');
+
     for (const route of router.getRoutes()) {
-      this.resolver.add(route);
+      const fullPath = prefix ? this.normalizePath(prefix + route.fullPath) : route.fullPath;
+      this.resolver.add({
+        ...route,
+        fullPath,
+        middleware: [...extraMiddleware, ...route.middleware],
+        type: route.type ?? routeType,
+      });
     }
     return this;
+  }
+
+  /**
+   * Convenience method to register API routes under an API prefix (default: /api).
+   */
+  registerApiRoutes(router: Router, prefix: string = '/api'): this {
+    return this.registerRoutes(router, { prefix, type: 'api' });
+  }
+
+  private normalizePath(path: string): string {
+    let normalized = path.replace(/\/+/g, '/');
+    if (!normalized.startsWith('/')) normalized = '/' + normalized;
+    if (normalized.length > 1 && normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
   }
 
   /**
@@ -161,20 +194,56 @@ export class Application {
 
     const listenPort = port ?? this.configManager.get<number>('app.port', 3000);
 
-    const server = Bun.serve({
-      port: listenPort,
-      fetch: (rawRequest: globalThis.Request) => this.handleRequest(rawRequest),
-      error: (err: Error) => this.handleError(err),
-    });
+    try {
+      const server = Bun.serve({
+        port: listenPort,
+        fetch: (rawRequest: globalThis.Request) => this.handleRequest(rawRequest),
+        error: (err: Error) => this.handleError(err),
+      });
+      this.server = server;
 
-    const routeCount = this.resolver.count;
-    console.log('');
-    console.log(`  ForgeTS v${Application.VERSION}`);
-    console.log(`  ├─ Server:  http://localhost:${server.port}`);
-    console.log(`  ├─ Routes:  ${routeCount} registered`);
-    console.log(`  ├─ Runtime: Bun ${Bun.version}`);
-    console.log(`  └─ Ready in ${Math.round(performance.now())}ms`);
-    console.log('');
+      const routeCount = this.resolver.count;
+      console.log('');
+      console.log(`  ForgeTS v${Application.VERSION}`);
+      console.log(`  ├─ Server:  http://localhost:${server.port}`);
+      console.log(`  ├─ Routes:  ${routeCount} registered`);
+      console.log(`  ├─ Runtime: Bun ${Bun.version}`);
+      console.log(`  └─ Ready in ${Math.round(performance.now())}ms`);
+      console.log('');
+    } catch (err: any) {
+      if (err?.code === 'EADDRINUSE' || String(err?.message).includes('address already in use')) {
+        console.error(`\n[ForgeTS] Error: Port ${listenPort} is already in use by another process.`);
+        console.error(`[ForgeTS] Specify a different port via APP_PORT=${listenPort + 1} or update your .env file.\n`);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Gracefully stop the HTTP server and close active dev server instances.
+   */
+  async stop(): Promise<void> {
+    if (this.server) {
+      this.server.stop(true);
+      this.server = null;
+    }
+
+    try {
+      const { getViteDevServer } = await import('../ssr/ViteDevServer.js');
+      const vite = await getViteDevServer();
+      if (vite) {
+        await vite.close();
+      }
+    } catch {
+      // Non-fatal if Vite dev server was not initialized
+    }
+  }
+
+  /**
+   * Return the active Bun.serve server instance if started.
+   */
+  getServer(): ReturnType<typeof Bun.serve> | null {
+    return this.server;
   }
 
   /**
@@ -325,9 +394,10 @@ export class Application {
         }
 
         // 404 for all forbidden, un-whitelisted, or missing routes/files
-        return new ForgeResponse()
-          .notFound(`No route matches ${method} ${path}`)
-          .toNativeResponse();
+        return this.handleError(
+          new NotFoundException(`No route matches ${method} ${path}`),
+          rawRequest,
+        );
       }
 
       // 2. Create the framework Request
@@ -433,7 +503,35 @@ export class Application {
         .toNativeResponse();
     }
 
-    const isDebug = process.env.APP_DEBUG === 'true';
+    if (error instanceof UnprocessableEntityException) {
+      const isDebugEarly =
+        process.env.APP_DEBUG !== undefined
+          ? env.boolean('APP_DEBUG', false)
+          : (this.configManager?.get<boolean>('app.debug') ?? false);
+      const pathnameEarly = rawRequest ? new URL(rawRequest.url, 'http://localhost').pathname : '';
+      const isApiRouteEarly = pathnameEarly.startsWith('/api/') || pathnameEarly === '/api';
+      const prefersHtmlEarly = !isApiRouteEarly && (rawRequest?.headers.get('accept') ?? '').includes('text/html');
+
+      if (prefersHtmlEarly) {
+        const html = isDebugEarly
+          ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
+          : ErrorDisplayEngine.renderProductionHtml(422, error.message);
+        return new ForgeResponse().status(422).html(html).toNativeResponse();
+      }
+      return new ForgeResponse()
+        .status(422)
+        .json({
+          message: error.message,
+          statusCode: 422,
+          ...(error.errors ? { errors: error.errors } : {}),
+        })
+        .toNativeResponse();
+    }
+
+    const isDebug =
+      process.env.APP_DEBUG !== undefined
+        ? env.boolean('APP_DEBUG', false)
+        : (this.configManager?.get<boolean>('app.debug') ?? false);
     const acceptHeader = rawRequest?.headers.get('accept') ?? '';
     const pathname = rawRequest ? new URL(rawRequest.url, 'http://localhost').pathname : '';
     const isApiRoute = pathname.startsWith('/api/') || pathname === '/api';
@@ -508,18 +606,31 @@ export class Application {
     console.error('[ForgeTS] Unhandled error:', error);
 
     if (isDebug) {
-      if (wantsJson && error instanceof Error) {
-        const redactedMessage = ErrorDisplayEngine.redactSecrets(error.message);
-        const rawStack = ErrorDisplayEngine.redactSecrets(error.stack ?? '');
+      if (wantsJson) {
+        const errObj = error instanceof Error ? error : new Error(String(error));
+        const redactedMessage = ErrorDisplayEngine.redactSecrets(errObj.message);
+        const rawStack = ErrorDisplayEngine.redactSecrets(errObj.stack ?? '');
         const stackLines = rawStack
           ? rawStack.split('\n').map((line) => line.trim())
           : [];
+        const diagnostics = ErrorDisplayEngine.extractDiagnostics(errObj);
 
         return new ForgeResponse()
           .status(500)
           .json({
             message: redactedMessage,
-            name: error.name || 'Error',
+            name: errObj.name || 'Error',
+            ...(diagnostics.length > 0
+              ? {
+                  diagnostics: diagnostics.map((d) => ({
+                    name: d.name,
+                    message: d.message,
+                    file: d.location?.file,
+                    line: d.location?.line,
+                    column: d.location?.column,
+                  })),
+                }
+              : {}),
             stack: stackLines,
           })
           .toNativeResponse();
@@ -589,5 +700,11 @@ export class ForbiddenException extends HttpException {
 export class BadRequestException extends HttpException {
   constructor(message: string = 'Bad Request') {
     super(400, message);
+  }
+}
+
+export class UnprocessableEntityException extends HttpException {
+  constructor(message: string = 'Unprocessable Entity', public readonly errors?: unknown) {
+    super(422, message);
   }
 }

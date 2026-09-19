@@ -1,11 +1,11 @@
 import { Controller, Get, Post, Put, Delete } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
-
+import { User } from '../models/User.ts';
 @Controller('/user')
 export class UserController {
   @Get('/')
   async index(_req: Request, res: ForgeResponse) {
-    return res.json([]);
+    return res.view('user');
   }
 
   @Get('/:id')
@@ -15,7 +15,11 @@ export class UserController {
 
   @Post('/')
   async store(req: Request, res: ForgeResponse) {
-    return res.created({});
+    const userData = req.body
+
+    return res.redirect('/about', {
+      user: userData
+    });
   }
 
   @Put('/:id')
