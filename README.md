@@ -7,46 +7,53 @@
 
 ## Key Highlights
 
-- **Bun-Native Engine**: Built directly on `Bun.serve()` with zero intermediate abstraction bloat. Sub-millisecond routing and minimal idle heap.
-- **TC39 Stage 3 Decorators**: Future-proof ECMAScript standard decorators (`@Controller`, `@Get`, `@Post`, `@Middleware`, `@Column`). Zero `experimentalDecorators` or `reflect-metadata` overhead.
-- **Radix-Trie Router**: O(path-segments) route matching that never degrades as your application route count grows.
-- **Active Record ORM**: Built on Kysely with full type inference, fluent queries (`User.find()`, `user.save()`), and eager relationship loading (`.with('posts')`). Supports both MySQL relational storage and MongoDB document engines with a unified API.
-- **Dependency Injection**: Inversion of Control container with explicit singleton and transient lifetimes.
-- **Dual View Engines**: Built-in server HTML View Engine (`resources/views/`) and React 19 server-side rendering (`resources/js/pages/`) with client hydration and Vite dev server integration.
-- **Event Subsystem**: Deterministic event dispatcher supporting synchronous and asynchronous listeners with automatic container dependency resolution.
-- **Security by Default**: Synchronized CSRF token verification, sliding-window rate limiting, input validation pipelines, and process secret redaction.
-- **`forge` CLI**: Scaffolding tool for controllers, models, migrations, services, middleware, pages, and route auditing (`forge routes:list`).
-- **Strict Separation of Concerns**: Enforces clean boundaries: Controllers handle HTTP → Services execute logic → Models query data → Views render UI.
+- **Bun-Native Engine**: Built directly on `Bun.serve()` with zero intermediate abstraction layers. Sub-millisecond routing and minimal idle heap.
+- **TC39 Stage 3 Decorators**: ECMAScript standard decorators (`@Controller`, `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`, `@Middleware`, `@Column`). Zero `experimentalDecorators` or `reflect-metadata` overhead.
+- **Radix-Trie Router**: O(path-segments) route matching that never degrades as your application route count grows. Supports route parameters (`:id`), grouping, and prefixes.
+- **Active Record ORM**: Built on Kysely (MySQL) and native MongoDB drivers with a 100% unified API (`User.find()`, `User.all()`, `User.create()`, `user.save()`, `user.delete()`, `user.fill()`). Features mass-assignment protection (`fillable`/`guarded`) and driver-aware datetime serialization.
+- **View Data Serialization Boundary**: Dedicated serializer (`serializeViewData()`) automatically unwraps Active Record Model instances and collections before they reach React SSR or HTML templates, preventing internal attributes (`_attributes`) from leaking into client hydration payloads.
+- **Dual View Engines**: Built-in server HTML View Engine (`resources/views/`) and React 19 server-side rendering (`resources/js/pages/`) with deterministic client hydration and Vite dev server integration.
+- **Native Development Supervisor**: Automatic backend process supervisor (`bin/dev.ts`) with debounced restarts on backend changes and instant Vite HMR for React frontend changes.
+- **Dependency Injection**: Inversion of Control container with explicit singleton and transient lifetimes and automatic class constructor resolution.
+- **Event Subsystem**: Deterministic FIFO event dispatcher supporting class and function listeners with automatic container dependency injection.
+- **Security by Default**: Stateful CSRF token verification (`CsrfMiddleware` with HTTP 419 on mismatch), sliding-window rate limiting (`@RateLimit` with HTTP 429), declarative input validation (`req.validate()`), Argon2id password hashing (`Hash`), and process secret redaction.
+- **`forge` CLI**: Scaffolding tool for controllers, models, migrations, services, middleware, full CRUD flows (`forge make:page <Name> --crud`), route auditing (`forge routes:list`), and cache management.
 
 ---
 
 ## Folder Structure
 
-ForgeTS follows convention-over-configuration directory placement so any developer can navigate the codebase effortlessly:
-
 ```
-my-app/
+ForgeTS/
 ├── app/
-│   ├── controllers/       # HTTP request handlers (thin controllers)
-│   ├── models/            # Active Record models (extend Model)
-│   ├── services/          # Business logic (@Injectable classes)
-│   └── middleware/        # Request pipeline middleware
+│   ├── controllers/       # HTTP request handlers (UserController.ts, WelcomeController.ts)
+│   ├── models/            # Active Record models extending Model (User.ts)
+│   ├── services/          # Business logic services (@Injectable classes)
+│   └── middleware/        # Request pipeline middleware classes
 ├── bootstrap/
-│   └── app.ts             # Composition root & app bootstrapping
+│   ├── app.ts             # Composition root & application wiring
+│   └── env.ts             # Early environment variable loader
 ├── bin/
-│   ├── serve.ts           # Server entry point
+│   ├── dev.ts             # Development process supervisor
+│   ├── serve.ts           # Standalone HTTP server launcher
 │   └── forge.ts           # CLI scaffolding executable
 ├── config/                # Typed configuration modules (app.ts, database.ts)
 ├── database/
 │   ├── migrations/        # Schema migration scripts
 │   └── seeders/           # Database seed scripts
+├── packages/
+│   └── forge/             # Framework core engine (@forge/core, @forge/database)
 ├── public/                # Static assets (CSS, JS, images, favicon)
 ├── resources/
 │   ├── js/                # React SSR pages, components, and client entry
+│   │   ├── pages/         # React SSR page components (user.tsx, welcome.tsx)
+│   │   ├── types/         # Shared TypeScript interfaces (PageProps)
+│   │   ├── entry-client.tsx # Client-side hydration entry
+│   │   └── entry-server.tsx # SSR production bundle entry
 │   └── views/             # Master React SSR shell document (app.html)
 ├── routes/
-│   ├── api.ts             # API route definitions (/api)
-│   └── web.ts             # Web page route definitions (/)
+│   ├── api.ts             # Stateless API route definitions (/api)
+│   └── web.ts             # Web page route definitions with CSRF protection (/)
 └── tests/
     ├── unit/              # Unit test suites (*.test.ts)
     └── integration/       # Integration & security regression suites
@@ -75,7 +82,7 @@ cp .env.example .env
 ### 3. Run Development Server
 
 ```bash
-# Start with hot reloading
+# Start development supervisor with hot reloading & Vite HMR
 bun run dev
 ```
 
@@ -93,69 +100,122 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### 1. Controllers & Routing
 
-Controllers handle HTTP requests and return typed responses or views:
+Controllers handle HTTP requests and return typed JSON or server-rendered views:
 
 ```typescript
-// app/controllers/PostController.ts
-import { Controller, Get, Post, Middleware } from '@forge/core';
+// app/controllers/UserController.ts
+import { Controller, Get, Post, Put, Delete } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
-import { Post as PostModel } from '../models/Post.js';
+import { User } from '@/models/User.js';
 
-@Controller('/posts')
-export class PostController {
+@Controller('/users')
+export class UserController {
   @Get('/')
-  async index(_req: Request, res: ForgeResponse) {
-    const posts = await PostModel.all();
-    return res.json(posts);
+  async index(req: Request, res: ForgeResponse) {
+    const users = await User.all();
+
+    if (req.wantsJson()) {
+      return res.json(users);
+    }
+
+    return res.view('user', {
+      title: 'Users Directory',
+      userData: users,
+    });
   }
 
   @Get('/:id')
   async show(req: Request, res: ForgeResponse) {
-    const post = await PostModel.find(req.params.id);
-    if (!post) return res.notFound('Post not found');
-    return res.json(post);
+    const user = await User.find(req.params.id);
+    if (!user) return res.notFound('User not found');
+    return res.json(user);
+  }
+
+  @Post('/')
+  async store(req: Request, res: ForgeResponse) {
+    const data = await req.validate({
+      name: 'required|string|min:2',
+      email: 'required|email',
+      password: 'required|string|min:8',
+    });
+
+    const user = await User.create(data);
+    return res.created(user);
   }
 }
 ```
 
-Register controllers in `routes/api.ts` or `routes/web.ts`:
+Register controllers in `routes/web.ts` (with CSRF protection) or `routes/api.ts` (stateless):
 
 ```typescript
 // routes/web.ts
 import { Router, CsrfMiddleware } from '@forge/core';
-import { WelcomeController } from '../app/controllers/WelcomeController.js';
+import { UserController } from '@/controllers/UserController.js';
+import { WelcomeController } from '@/controllers/WelcomeController.js';
 
 const router = new Router();
 
 router.middleware(CsrfMiddleware);
 router.controller(WelcomeController);
+router.controller(UserController);
 
 export default router;
 ```
 
 ---
 
-### 2. Views & React Server-Side Rendering
+### 2. React 19 Server-Side Rendering & Serialization
 
-Pages located under `resources/js/pages/*.tsx` are rendered server-side and hydrated on the client via the `resources/views/app.html` shell:
+React pages placed in `resources/js/pages/*.tsx` are rendered on the server and hydrated in the browser:
 
-```typescript
-// app/controllers/WelcomeController.ts
-import { Controller, Get, Request, ForgeResponse } from '@forge/core';
+```tsx
+// resources/js/pages/user.tsx
+import React from 'react';
+import type { PageProps } from '@/types';
 
-@Controller('/')
-export class WelcomeController {
-  @Get('/')
-  async welcome(_req: Request, res: ForgeResponse) {
-    return res.view('welcome', {
-      appName: 'My Application',
-    }).meta({
-      title: 'Welcome to ForgeTS',
-      description: 'High-performance TypeScript web framework on Bun',
-    });
-  }
+interface UserItem {
+  id: number;
+  name: string;
+  email: string;
+}
+
+interface UserPageProps extends PageProps {
+  title?: string;
+  userData?: UserItem[];
+}
+
+export default function UserPage({ csrf_token, title = 'Users', userData = [] }: UserPageProps) {
+  return (
+    <div style={{ maxWidth: '800px', margin: '40px auto', fontFamily: 'sans-serif' }}>
+      <h1>{title}</h1>
+
+      <form action="/users" method="POST">
+        <input type="hidden" name="_token" value={csrf_token} />
+        <input type="text" name="name" placeholder="Name" required />
+        <input type="email" name="email" placeholder="Email" required />
+        <input type="password" name="password" placeholder="Password" required />
+        <button type="submit">Create User</button>
+      </form>
+
+      <ul>
+        {userData.map((user) => (
+          <li key={user.id}>
+            {user.name} ({user.email})
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 ```
+
+#### Automatic Model Serialization
+When passing Active Record instances to `res.view()`:
+```typescript
+const users = await User.all();
+return res.view('user', { userData: users });
+```
+The framework automatically passes `viewData` through `serializeViewData()`. Every Model instance is unwrapped via its `.toJSON()` method into plain objects. Internal state (`_attributes`) and active record methods are never exposed to React SSR components or leaked into client hydration scripts.
 
 #### Master SSR Shell Document
 The React SSR engine mounts rendered components inside `resources/views/app.html`:
@@ -176,13 +236,11 @@ The React SSR engine mounts rendered components inside `resources/views/app.html
 </html>
 ```
 
-*Static assets placed in `public/` (e.g. `public/css/welcome.css`) are served automatically.*
-
 ---
 
 ### 3. Active Record ORM
 
-Define models extending `Model` with `@Column()`, `@HasMany()`, and `@BelongsTo()` decorators:
+Define models extending `Model` with `@Column()` decorators:
 
 ```typescript
 // app/models/User.ts
@@ -191,30 +249,41 @@ import { Post } from './Post.js';
 
 export class User extends Model {
   static override table = 'users';
+  static override fillable = ['name', 'email', 'password'];
 
   @Column() declare id: number;
   @Column() declare name: string;
   @Column() declare email: string;
+  @Column() declare password: string;
+  @Column() declare created_at: string;
+  @Column() declare updated_at: string;
 
   @HasMany(() => Post, 'user_id')
   declare posts: Post[];
 }
 ```
 
-Query and persist records:
-
+#### Querying & Persisting Records
 ```typescript
 // Create & save
 const user = await User.create({ name: 'Alice', email: 'alice@example.com' });
 user.name = 'Alice Smith';
 await user.save();
 
-// Fluent queries with relationship eager loading
-const userWithPosts = await User.where('email', 'alice@example.com')
-  .with('posts')
-  .first();
+// Update with mass-assignment filtering
+await user.update({ name: 'Alice Doe' });
 
-// Delete
+// Fluent queries
+const activeUsers = await User.where('status', 'active')
+  .orderBy('created_at', 'desc')
+  .limit(10)
+  .get();
+
+// Find single record
+const user = await User.find(1);
+const requiredUser = await User.findOrFail(1);
+
+// Delete record
 await user.delete();
 ```
 
@@ -227,17 +296,17 @@ Define injectable services with `@Injectable()`:
 ```typescript
 // app/services/UserService.ts
 import { Injectable } from '@forge/core';
-import { User } from '../models/User.js';
+import { User } from '@/models/User.js';
 
 @Injectable({ lifetime: 'singleton' })
 export class UserService {
   async getActiveUsers() {
-    return User.where('active', 1).get();
+    return User.where('status', 'active').get();
   }
 }
 ```
 
-Inject services into controllers via constructor or resolve from the container:
+Resolve services from the container:
 
 ```typescript
 const userService = container.resolve(UserService);
@@ -245,9 +314,9 @@ const userService = container.resolve(UserService);
 
 ---
 
-### 5. Events Subsystem
+### 5. Event Subsystem
 
-Define decoupled events and listeners with deterministic execution and DI support:
+Define decoupled events and listeners with deterministic FIFO execution:
 
 ```typescript
 // app/events/UserRegistered.ts
@@ -258,7 +327,7 @@ export class UserRegistered {
 // app/listeners/SendWelcomeEmail.ts
 export class SendWelcomeEmail {
   async handle(event: UserRegistered) {
-    // Send onboarding email
+    // Send email logic
   }
 }
 
@@ -271,34 +340,39 @@ await app.events.dispatch(new UserRegistered(user));
 
 ## CLI Reference
 
-The `forge` CLI provides scaffolding and route auditing:
+The `forge` CLI provides scaffolding, route auditing, and cache management:
 
 ```bash
-# Display all registered application routes in a table
+# Display all registered application routes in a formatted table
 forge routes:list
 
 # Scaffold a new HTTP controller
-forge make:controller UserController
+forge make:controller UserController [--api]
 
 # Scaffold an Active Record model (with optional migration)
-forge make:model Post --migration
+forge make:model User [--migration]
 
 # Scaffold a full React page CRUD flow (Model, Migration, Controller, 4 React Pages)
-forge make:page Note --crud
+forge make:page User --crud
 
 # Scaffold an @Injectable() business logic service
-forge make:service PostService
+forge make:service UserService
 
 # Scaffold HTTP middleware
 forge make:middleware AuthMiddleware
 
 # Scaffold a database migration script
-forge make:migration create_posts_table
+forge make:migration create_users_table
+
+# Clear application, config, and framework caches
+forge cache:clear
+forge config:clear
+forge optimize:clear
 ```
 
 ---
 
-## Testing
+## Testing & Building
 
 Run unit and integration tests using Bun's native test runner:
 
@@ -318,14 +392,38 @@ Run production client and SSR bundle builds:
 bun run build
 ```
 
+Start in production mode:
+
+```bash
+bun run start
+```
+
+---
+
+## Documentation Directory
+
+Detailed architectural guides and documentation are available in the `Docs/` directory:
+
+- [Active Record ORM Guide](Docs/ORM.md)
+- [React 19 Server-Side Rendering Guide](Docs/REACT_SSR.md)
+- [HTTP, Controllers, Routing & Security Guide](Docs/HTTP_ROUTING.md)
+- [Canonical End-to-End CRUD Walkthrough](Docs/CRUD_WALKTHROUGH.md)
+- [System Architecture Report](Docs/architecture_report.md)
+- [System Design Specification](Docs/DESIGN.md)
+- [Product Requirements Document (PRD)](Docs/PRD.md)
+- [Framework Memory & Conventions](Docs/MEMORY.md)
+- [Task Register & Milestone Log](Docs/TASK.md)
+- [Project Overview & Architectural Decisions](Docs/PROJECT.md)
+- [Mandatory Engineering Rules](Docs/RULES.md)
+
 ---
 
 ## Engineering Standards
 
 ForgeTS enforces strict engineering standards:
-- Zero emojis in source code, technical documentation, CLI output, logs, or error messages (see `RULES.md` Rule 8).
-- Complete separation of framework core engine (`packages/forge/src/`) and application logic (`app/`).
-- Future-proof standards compliance using native TC39 Stage 3 decorator metadata.
+- **Zero Emojis**: Prohibited in all source code, technical documentation, CLI output, logs, and error messages (see `Docs/RULES.md` Rule 8).
+- **Clean Architecture**: Complete separation of framework core engine (`packages/forge/src/`) and application domain (`app/`).
+- **Standard Decorators**: Pure ECMAScript TC39 Stage 3 decorator compliance using `context.metadata`.
 
 ---
 

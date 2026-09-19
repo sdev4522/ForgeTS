@@ -1,4 +1,4 @@
-# ForgeTS Framework — Architectural Analysis & Report (v0.1.0)
+# ForgeTS Framework — Architectural Analysis & Report (v0.6.0)
 
 > **ForgeTS** is a batteries-included, TypeScript-first web framework running on Bun. It brings Laravel's developer experience (DX) and structure to the JavaScript/TypeScript ecosystem with maximum runtime speed.
 
@@ -6,7 +6,7 @@
 
 ## 1. High-Level Architecture Overview
 
-ForgeTS is built on a modular, decoupled architecture where **framework engine internals** are separated cleanly from **application code**.
+ForgeTS is built on a modular, decoupled architecture where **framework engine internals** (`packages/forge/src/`) are strictly separated from **application code** (`app/`, `routes/`, `resources/`, `config/`).
 
 ```
                            ┌────────────────────────────────────────┐
@@ -28,6 +28,7 @@ ForgeTS is built on a modular, decoupled architecture where **framework engine i
                          ▼                                           ▼
              ┌───────────────────────┐                   ┌───────────────────────┐
              │ Public Asset (public/)│                   │ Middleware Pipeline   │
+             │ or Vite HMR Client    │                   │ (CSRF, RateLimit, ...)│
              └───────────────────────┘                   └───────────┬───────────┘
                                                                      │
                                                                      ▼
@@ -42,17 +43,29 @@ ForgeTS is built on a modular, decoupled architecture where **framework engine i
                                                                │           │
                                                                ▼           ▼
                                                     ┌──────────────┐   ┌──────────────┐
-                                                    │ Active Record│   │ ViewEngine   │
-                                                    │ Model (ORM)  │   │ (.html)      │
+                                                    │ Active Record│   │ ForgeResponse│
+                                                    │ Model (ORM)  │   │ .view()/.json│
                                                     └──────┬───────┘   └──────┬───────┘
                                                            │                  │
-                                                           └──────────┬───────┘
-                                                                      │
-                                                                      ▼
-                                                         ┌───────────────────────┐
-                                                         │ HTTP Response (JSON/  │
-                                                         │ HTML/Redirect)        │
-                                                         └───────────────────────┘
+                                                           ▼                  ▼
+                                                    ┌───────────────────────────────┐
+                                                    │      serializeViewData()      │
+                                                    │  (Recursively unwraps models) │
+                                                    └──────────────┬────────────────┘
+                                                                   │
+                                                ┌──────────────────┴──────────────────┐
+                                                ▼                                     ▼
+                                    ┌───────────────────────┐             ┌───────────────────────┐
+                                    │ ViewEngine (.html)    │             │ ReactEngine (SSR)     │
+                                    │ {{ var }} template    │             │ React 19 + Hydration  │
+                                    └───────────┬───────────┘             └───────────┬───────────┘
+                                                │                                     │
+                                                └──────────────────┬──────────────────┘
+                                                                   │
+                                                                   ▼
+                                                    ┌───────────────────────────────┐
+                                                    │ HTTP Response (HTML / JSON)   │
+                                                    └───────────────────────────────┘
 ```
 
 ---
@@ -60,64 +73,84 @@ ForgeTS is built on a modular, decoupled architecture where **framework engine i
 ## 2. Core Subsystems & Working Methods
 
 ### 2.1 Routing & Decorator System (`packages/forge/src/routing/`)
-- **TC39 Stage 3 Decorator Compliant**: Uses Bun 1.3+ native metadata context (`ClassDecoratorContext` & `ClassMethodDecoratorContext`) with zero reliance on legacy `reflect-metadata` or `experimentalDecorators`.
-- **Radix Trie Route Resolution**: High-speed route matching supporting dynamic parameters (`/todos/:id`), HTTP verbs (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`), and controller prefixes (`@Controller('/todos')`).
+- **TC39 Stage 3 Decorator Compliant**: Uses Bun 1.3+ native metadata context (`ClassDecoratorContext` and `ClassMethodDecoratorContext`) with zero reliance on legacy `reflect-metadata` or `experimentalDecorators`.
+- **Radix Trie Route Resolution**: High-speed route matching supporting dynamic parameters (`/users/:id`), HTTP verbs (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`), and controller prefixes (`@Controller('/users')`).
 - **Middleware Pipeline**: Onion-architecture middleware execution supporting route-level and global middleware (`executePipeline()`).
 
 ### 2.2 Dependency Injection Container (`packages/forge/src/container/`)
-- **Singleton & Transient Scopes**: Manages service lifecycle and class instances.
-- **Automatic Constructor Resolution**: Recursively resolves class dependencies using `@Deps()` / `@Injectable()` decorators or explicit `.deps()` bindings.
+- **Singleton & Transient Lifetimes**: Manages service lifecycle and class instances with O(1) map resolution.
+- **Dependency Resolution**: Injects instances into controllers or resolves them explicitly via `container.resolve(Service)`.
 
 ### 2.3 Active Record ORM & Multi-Driver Database Layer (`packages/forge/src/database/`)
-- **Eloquent / Lucid-inspired Model**: Abstract `Model` base class with Proxy-backed attribute access (`model._attributes`).
+- **Model Base Class & Virtual Attributes**: Abstract `Model` base class featuring an ES6 Proxy wrapper. Reads and writes to attributes (e.g. `user.name`) map transparently to `this._attributes`.
+- **Proxy Traps for Reflection**: The proxy implements `ownKeys`, `has`, and `getOwnPropertyDescriptor`. Operations like `Object.keys(model)` and `{ ...model }` reflect model attributes directly without exposing internal active-record state.
+- **Mass-Assignment Protection**: Configurable allow-list (`fillable`) and deny-list (`guarded`), defaulting to safe automatic guarding of `id`, `created_at`, `updated_at`, `deleted_at`.
 - **Multi-Driver Engine**:
   - **MySQL / MariaDB**: Powered by `mysql2` connection pool & Kysely `MysqlDialect`.
   - **MongoDB**: Native NoSQL document driver wrapping official `mongodb` client, sharing identical Active Record CRUD API.
-  - *Note: SQLite driver was superseded and cleanly removed per ADR-003 in favor of MySQL and MongoDB.*
-- **Fluent QueryBuilder**: Chainable queries (`Model.where()`, `Model.find()`, `Model.all()`, `Model.create()`, `model.save()`, `model.delete()`).
-- **Auto Timestamps & Schema Migrator**: Automatically manages `created_at` / `updated_at` and runs idempotent Kysely table migrations.
+- **Fluent QueryBuilder**: Chainable queries (`Model.where()`, `Model.whereBetween()`, `Model.orderBy()`, `Model.limit()`, `Model.offset()`, `Model.with()`, `Model.find()`, `Model.findOrFail()`, `Model.all()`, `Model.create()`, `model.save()`, `model.delete()`).
+- **Automatic Timestamps & Serialization**: Manages `created_at` / `updated_at` with driver-aware timezone formatting.
 
-### 2.4 HTML View Engine (`packages/forge/src/view/`)
-- **Template Renderer**: Interpolates variables and partials in `.html` files loaded from `resources/views/`.
-- **Syntax**:
-  - `{{ variable }}` — HTML-escaped substitution (XSS safe).
-  - `{{{ variable }}}` — Unescaped raw HTML substitution.
-  - `{{@ partialName }}` — Template partial includes.
-
-### 2.5 Unified HTTP Request & Response (`packages/forge/src/http/`)
+### 2.4 HTTP Layer & Serialization Boundary (`packages/forge/src/http/`)
 - **Request Wrapper**: Lazily parses query parameters, headers, route params, JSON bodies, and `application/x-www-form-urlencoded` HTML form submissions.
-- **ForgeResponse**: Chainable fluent response helper supporting `res.json()`, `res.view()`, `res.html()`, `res.redirect()`, `res.status()`, and custom exception error handling.
+- **ForgeResponse**: Chainable fluent response helper supporting `res.json()`, `res.view()`, `res.html()`, `res.redirect()`, `res.status()`, `res.cookie()`, and shortcut helpers (`res.created()`, `res.noContent()`, `res.notFound()`).
+- **Status Normalization**: `normalizeHttpStatus()` guarantees all status codes comply with the Web / Fetch specification, preventing runtime server panics from invalid or unassigned codes.
+- **View Data Serializer (`serializeViewData`)**: A dedicated serialization boundary between controllers and views. Recursively unwraps Active Record `Model` instances via `.toJSON()` before passing props to `ReactEngine` or `ViewEngine`. Prevents internal instance methods and `_attributes` from leaking into React SSR markup and client hydration payloads.
+
+### 2.5 Dual View Engines (`packages/forge/src/view/` and `packages/forge/src/ssr/`)
+- **Server HTML View Engine (`ViewEngine`)**: Interpolates variables and partials in `.html` files loaded from `resources/views/` (`{{ variable }}`, `{{{ variable }}}`, `{{@ partialName }}`).
+- **React 19 Server-Side Rendering (`ReactEngine`)**:
+  - Automatically resolves components from `resources/js/pages/*.tsx`.
+  - Development mode: Powered by Vite in middleware mode (`vite.ssrLoadModule()`) with React Fast Refresh.
+  - Production mode: Precompiled server bundle (`dist/server/entry-server.js`) with client asset manifest lookups and targeted `<link rel="modulepreload">` chunk tags.
+  - Hydration handshake: Serializes safe props into `<script type="application/json" id="__FORGETS_DATA__">` for deterministic client hydration via `resources/js/entry-client.tsx`.
+
+### 2.6 Development Supervisor (`bin/dev.ts`)
+Distinguishes three reload domains:
+1. **Backend Application**: Watched and debounced with automatic child process restart (`Bun.spawn`).
+2. **Frontend React Pages**: Handled natively by Vite HMR without backend restart.
+3. **Framework Engine**: Automatically watched during framework development for rapid iteration.
+
+### 2.7 Security & Diagnostics
+- **CSRF Protection (`CsrfMiddleware`)**: Session-based verification with `forge_session` cookie; validates `_token` on write methods and rejects mismatches with HTTP 419.
+- **Sliding-Window Rate Limiting (`RateLimiter`, `@RateLimit`)**: Memory-based IP rate limiter with HTTP 429 and `Retry-After` header.
+- **Password Hashing (`Hash`, `hash`)**: Native SIMD Argon2id password hashing via `Bun.password`.
+- **ErrorDisplayEngine**: Ignition-style interactive HTML stack traces with code snippets and automatic process secret redaction (`APP_DEBUG=true`).
 
 ---
 
 ## 3. Directory & File Structure
 
 ```
-my-framework/
+ForgeTS/
 ├── packages/
-│   └── forge/                       # Framework Core Engine (@forge/core)
+│   └── forge/                       # Framework Core Engine (@forge/core, @forge/database)
 │       └── src/
-│           ├── core/                # Application, Provider, Exception classes
-│           ├── routing/             # Router, RouteResolver, Decorators (@Controller, @Get etc.)
-│           ├── container/           # DI Container & @Injectable decorators
-│           ├── database/            # Active Record Model, QueryBuilder, Connection Manager
-│           ├── http/                # Request, ForgeResponse, Pipeline, Middleware
+│           ├── core/                # Application, Provider, time utilities
+│           ├── routing/             # Router, RouteResolver, decorators (@Controller, @Get etc.)
+│           ├── container/           # DI Container & @Injectable decorator
+│           ├── database/            # Active Record Model, QueryBuilder, Connection, Drivers
+│           ├── http/                # Request, ForgeResponse, Pipeline, Middleware, serializer
+│           ├── ssr/                 # ReactEngine, ViteDevServer
 │           ├── view/                # ViewEngine template renderer
-│           └── config/              # ConfigManager & env loader
+│           ├── config/              # ConfigManager, env loader, bootstrapEnv
+│           ├── events/              # EventDispatcher
+│           └── security/            # Native Argon2id Hash helper
 │
-├── app/                             # Application Domain Layer (Clean Starter)
-│   ├── controllers/                 # HTTP Controllers (WelcomeController.ts)
-│   ├── models/                      # Active Record Models
+├── app/                             # Application Domain Layer
+│   ├── controllers/                 # HTTP Controllers (WelcomeController, UserController)
+│   ├── models/                      # Active Record Models (User)
 │   ├── services/                    # Application Services (@Injectable classes)
 │   └── middleware/                  # HTTP Middleware classes
 │
 ├── routes/                          # Route Definitions
-│   ├── web.ts                       # HTML Web Routes (WelcomeController)
-│   └── api.ts                       # JSON API Routes
+│   ├── web.ts                       # HTML / Session Web Routes (with CsrfMiddleware)
+│   └── api.ts                       # Stateless JSON API Routes
 │
 ├── resources/
 │   ├── js/                          # React SSR
-│   │   ├── pages/                   # React SSR Pages (welcome.tsx)
+│   │   ├── pages/                   # React SSR Pages (welcome.tsx, user.tsx)
+│   │   ├── types/                   # Shared frontend PageProps interfaces
 │   │   ├── entry-client.tsx         # Client Hydration Entrypoint
 │   │   └── entry-server.tsx         # SSR Production Build Entrypoint
 │   └── views/                       # Server HTML Shells
@@ -136,40 +169,31 @@ my-framework/
 │   ├── app.ts                       # Application Wiring & Bootstrap
 │   └── env.ts                       # Early Environment Bootstrapper
 └── bin/
-    ├── dev.ts                       # Development Supervisor with Auto-Restart (bun run dev / forge dev)
-    ├── serve.ts                     # Standalone HTTP Server Launcher (bun run serve / forge serve)
+    ├── dev.ts                       # Development Supervisor with Auto-Restart
+    ├── serve.ts                     # Standalone HTTP Server Launcher
     └── forge.ts                     # Framework CLI Tool
 ```
 
 ---
 
-## 4. Current Features Summary
+## 4. Execution Flow Example: `GET /users` (React SSR)
 
-| Category | Feature | Status |
-|---|---|---|
-| **Runtime** | Bun 1.3+ Native HTTP Server (`Bun.serve()`) | Fully Implemented |
-| **Development DX** | Native Development Supervisor (auto-restart backend, Vite HMR frontend) | Fully Implemented |
-| **Routing** | Radix Trie, Params (`:id`), Verbs, Static Assets (`public/`) | Fully Implemented |
-| **Decorators** | TC39 Stage 3 (`@Controller`, `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`) | Fully Implemented |
-| **DI Container** | Recursive Constructor Injection & Singleton Lifecycle | Fully Implemented |
-| **ORM** | Active Record (`Model.find()`, `Model.all()`, `Model.create()`, `.save()`) | Fully Implemented |
-| **Database** | Multi-Driver Support: **MySQL** (relational) & **MongoDB** (document) | Fully Implemented |
-| **View Engine** | Server-Side HTML Template Rendering (`res.view()`) & React SSR | Fully Implemented |
-| **Form Handling** | `application/x-www-form-urlencoded` Form Submissions | Fully Implemented |
-| **Error Handling** | Global Error Handler & Debug Trace Renderer (`APP_DEBUG`) | Fully Implemented |
-| **Security** | CSRF middleware, rate limiting, and process secret redaction | Fully Implemented |
-| **Events** | Deterministic synchronous and asynchronous event dispatching | Fully Implemented |
-| **Starter Skeleton** | Minimal framework starter with zero demo domains & React SSR welcome page | Verified & Live |
-
----
-
-## 5. Execution Flow Example: `GET /`
-
-1. **Client Action**: Browser navigates to `http://localhost:3000/`.
+1. **Client Request**: Browser requests `GET /users`.
 2. **Server Listen**: `Bun.serve()` receives `globalThis.Request`.
-3. **Route Match**: `RouteResolver` matches `GET /` to `WelcomeController.welcome`.
-4. **Middleware Pipeline**: `CsrfMiddleware` verifies/issues session token cookie.
-5. **Controller Resolution**: `Container` resolves `WelcomeController` instance.
-6. **SSR Rendering**: `WelcomeController` calls `res.view('welcome', { ... })`. `ReactEngine` renders `resources/js/pages/welcome.tsx` to static markup and mounts it within the `resources/views/app.html` shell.
-7. **Response**: `ForgeResponse` delivers `200 OK` with full server-rendered HTML document.
-8. **Client Hydration**: Client script `resources/js/entry-client.tsx` hydrates the DOM tree using serialized `__FORGETS_DATA__`.
+3. **Route Match**: Radix Trie `RouteResolver` matches path to `UserController.index`.
+4. **Middleware Pipeline**: `CsrfMiddleware` verifies or issues the session cookie `forge_session` and attaches `_csrfToken` to the request.
+5. **Controller Execution**: `UserController.index(req, res)` executes:
+   ```typescript
+   const users = await User.all();
+   return res.view('user', { userData: users });
+   ```
+6. **Data Sanitization Boundary**: `ForgeResponse.view()` receives `{ userData: users }`.
+   - `serializeViewData()` unwraps the array of `User` instances by executing each model's `.toJSON()` method.
+   - Attaches `csrf_token` and `csrf_field`.
+7. **SSR Render**: `ReactEngine.renderPage('user', viewData)`:
+   - Development: Compiles and executes `resources/js/pages/user.tsx` via `vite.ssrLoadModule()`.
+   - Production: Executes precompiled SSR module and looks up asset hashes in `manifest.json`.
+   - Renders markup string via `ReactDOMServer.renderToString(<UserPage {...safeProps} />)`.
+8. **Shell Assembly**: Injects rendered HTML, page title, and escaped JSON payload into `resources/views/app.html`.
+9. **Transmission**: `ForgeResponse.toNativeResponse()` returns `200 OK` with `Content-Type: text/html`.
+10. **Client Hydration**: Browser receives HTML, downloads `entry-client.tsx`, reads `__FORGETS_DATA__`, and hydrates the DOM tree without mismatch warnings.
