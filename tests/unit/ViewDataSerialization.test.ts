@@ -30,7 +30,7 @@ describe('Model Proxy Object Reflection & Traps', () => {
 
   test('2. Object spread { ...model } copies attributes directly without _attributes nesting', () => {
     const user = new MockUser({ id: 1, name: 'Alice', email: 'alice@example.com' });
-    const spread = { ...user };
+    const spread = { ...user } as any;
 
     expect(spread.id).toBe(1);
     expect(spread.name).toBe('Alice');

@@ -15,7 +15,7 @@
  * 4. Internal state (`_attributes`, active-record methods) never leaks into React SSR or ViewEngine.
  * 5. SSR props and client hydration payloads remain 100% deterministic and aligned.
  */
-export function serializeViewData<T = unknown>(value: T): T {
+export function serializeViewData<T = any>(value: unknown): T {
   if (value === null || value === undefined) {
     return value;
   }
