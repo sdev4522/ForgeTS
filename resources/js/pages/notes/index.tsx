@@ -16,7 +16,7 @@ export default function NoteIndex({ items = [], csrf_token = '' }: NoteIndexProp
   return (
     <div style={{ maxWidth: '800px', margin: '40px auto', fontFamily: 'sans-serif', color: '#f8fafc', backgroundColor: '#090d16', padding: '2rem', borderRadius: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-        <h2>⚡ Notes</h2>
+        <h2>Notes</h2>
         <a href="/notes/create" style={{ background: '#6366f1', color: '#fff', padding: '0.5rem 1rem', borderRadius: '0.5rem', textDecoration: 'none', fontWeight: 600 }}>+ New Note</a>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

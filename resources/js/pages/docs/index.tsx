@@ -3,7 +3,7 @@ import { DocsLayout } from '../../components/DocsLayout.js';
 
 export default function DocsGettingStarted() {
   return (
-    <DocsLayout currentPath="/docs" title="🚀 Getting Started">
+    <DocsLayout currentPath="/docs" title="Getting Started">
       <p style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem' }}>
         ForgeTS is a batteries-included, TypeScript-first web framework running on Bun.
         It brings Laravel's developer experience to the JavaScript/TypeScript ecosystem.

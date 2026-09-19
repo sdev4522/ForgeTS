@@ -1,6 +1,6 @@
 // tests/unit/DatabaseResilience.test.ts
-import { describe, test, expect, beforeAll } from 'bun:test';
-import { verifyDatabaseConnectionOnBoot } from '../../packages/forge/src/database/Connection.js';
+import { describe, test, expect, beforeAll, afterEach } from 'bun:test';
+import { verifyDatabaseConnectionOnBoot, resetDatabaseConnection } from '../../packages/forge/src/database/Connection.js';
 import app from '../../bootstrap/app.ts';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
@@ -13,11 +13,18 @@ describe('Database Failure Resilience & Fail-Fast Auditing', () => {
     configManager.set('database', dbConfig);
   });
 
+  afterEach(() => {
+    resetDatabaseConnection();
+    const configManager = initConfig(process.cwd());
+    configManager.set('database', dbConfig);
+  });
+
   test('Scenario 1: Boot-Time Fail-Fast Check logs error details and throws/exits on bad connection', async () => {
     const configManager = initConfig(process.cwd());
     const dbConfigCopy = JSON.parse(JSON.stringify(dbConfig));
     dbConfigCopy.connections.mysql.port = 29999;
     configManager.set('database', dbConfigCopy);
+    resetDatabaseConnection();
 
     let errorThrown = false;
     let loggedError = '';
@@ -42,7 +49,7 @@ describe('Database Failure Resilience & Fail-Fast Auditing', () => {
     }
 
     expect(errorThrown).toBe(true);
-    expect(loggedError).toContain('🚨 [ForgeTS Database Boot Failure]');
+    expect(loggedError).toContain('[ForgeTS Database Boot Failure]');
     expect(loggedError).toContain("Driver:          'mysql'");
   });
 
@@ -59,7 +66,7 @@ describe('Database Failure Resilience & Fail-Fast Auditing', () => {
       port: 3306,
     });
 
-    const req = new globalThis.Request('http://localhost:3000/api/todos', {
+    const req = new globalThis.Request('http://example.test/api/todos', {
       headers: { accept: 'application/json' },
     });
 

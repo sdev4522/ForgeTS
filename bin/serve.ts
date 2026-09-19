@@ -14,14 +14,14 @@ async function serve() {
     const app = appModule.default;
     await app.start();
   } catch (err: unknown) {
-    console.error('\n❌ [ForgeTS] Startup / Compilation Error:');
+    console.error('\n[ForgeTS] Startup / Compilation Error:');
     console.error(err);
 
     const port = process.env.APP_PORT ? Number(process.env.APP_PORT) : 3000;
     const isDebug = process.env.APP_DEBUG !== 'false';
 
     if (isDebug) {
-      console.log(`⚡ [ForgeTS] Emergency Debug Server running at http://localhost:${port}\n`);
+      console.log(`[ForgeTS] Emergency Debug Server running at http://localhost:${port}\n`);
 
       Bun.serve({
         port,

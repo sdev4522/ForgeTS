@@ -4,7 +4,7 @@ import app from '../../bootstrap/app.js';
 describe('Minimal Documentation Site Routes (React SSR Dogfooding)', () => {
   test('1. GET /docs renders Getting Started page', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/docs', {
+      new globalThis.Request('http://example.test/docs', {
         headers: { accept: 'text/html' },
       })
     );
@@ -17,7 +17,7 @@ describe('Minimal Documentation Site Routes (React SSR Dogfooding)', () => {
 
   test('2. GET /docs/routing renders Routing & Decorators page', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/docs/routing', {
+      new globalThis.Request('http://example.test/docs/routing', {
         headers: { accept: 'text/html' },
       })
     );
@@ -30,7 +30,7 @@ describe('Minimal Documentation Site Routes (React SSR Dogfooding)', () => {
 
   test('3. GET /docs/models renders Active Record Models page', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/docs/models', {
+      new globalThis.Request('http://example.test/docs/models', {
         headers: { accept: 'text/html' },
       })
     );
@@ -42,7 +42,7 @@ describe('Minimal Documentation Site Routes (React SSR Dogfooding)', () => {
 
   test('4. GET /docs/views renders Views (HTML & React) page', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/docs/views', {
+      new globalThis.Request('http://example.test/docs/views', {
         headers: { accept: 'text/html' },
       })
     );
@@ -54,7 +54,7 @@ describe('Minimal Documentation Site Routes (React SSR Dogfooding)', () => {
 
   test('5. GET /docs/cli renders CLI Commands page', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/docs/cli', {
+      new globalThis.Request('http://example.test/docs/cli', {
         headers: { accept: 'text/html' },
       })
     );

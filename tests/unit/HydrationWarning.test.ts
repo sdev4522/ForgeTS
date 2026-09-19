@@ -2,7 +2,7 @@ import { describe, test, expect, mock } from 'bun:test';
 
 describe('Hydration Mismatch Console Guidance Wrapper', () => {
   test('logs clearer ForgeTS guidance alongside React original hydration warning in DEV mode', () => {
-    const page = 'todos/index';
+    const page = 'example/page';
     let hydrationMismatchDetected = false;
     const errorsLogged: string[] = [];
     const warningsLogged: string[] = [];
@@ -26,7 +26,7 @@ describe('Hydration Mismatch Console Guidance Wrapper', () => {
       if (!hydrationMismatchDetected && isHydrationMessage(msg)) {
         hydrationMismatchDetected = true;
         originalWarn(
-          `⚡ [ForgeTS Hydration Warning] Hydration mismatch on page: '${page}'\n` +
+          `[ForgeTS Hydration Warning] Hydration mismatch on page: '${page}'\n` +
             `   This usually means server-rendered props/HTML differ from client props.\n` +
             `   Common causes: non-deterministic values like Date.now() or Math.random(),\n` +
             `   browser-only APIs (window/localStorage) rendered during SSR, or mismatched props.`
@@ -43,7 +43,7 @@ describe('Hydration Mismatch Console Guidance Wrapper', () => {
 
     // 2. Clearer ForgeTS framework warning was also logged alongside it
     expect(warningsLogged.length).toBe(1);
-    expect(warningsLogged[0]).toContain(`⚡ [ForgeTS Hydration Warning] Hydration mismatch on page: '${page}'`);
+    expect(warningsLogged[0]).toContain(`[ForgeTS Hydration Warning] Hydration mismatch on page: '${page}'`);
     expect(warningsLogged[0]).toContain('non-deterministic values like Date.now() or Math.random()');
   });
 });

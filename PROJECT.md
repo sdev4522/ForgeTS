@@ -91,51 +91,51 @@ conventions, to prove the DX works the way a real developer would experience it.
 
 ## 4. Roadmap Status
 
-- **v0.1 — Core Engine & Application Skeleton** — ✅ **COMPLETED & VERIFIED**
-  - Router + TC39 Stage 3 Decorators — ✅
-  - DI Container — ✅
-  - Request / Response wrappers + Form Body Parser — ✅
-  - Global Error Handler + Debug Display Engine (`APP_DEBUG`) — ✅
+- **v0.1 — Core Engine & Application Skeleton** — **COMPLETED & VERIFIED**
+  - Router + TC39 Stage 3 Decorators — [Completed]
+  - DI Container — [Completed]
+  - Request / Response wrappers + Form Body Parser — [Completed]
+  - Global Error Handler + Debug Display Engine (`APP_DEBUG`) — [Completed]
   - DatabaseDriver interface + SQLDriver (Kysely + **SQLite and MySQL, both verified
-    end-to-end with identical CRUD behavior**) — ✅
-  - Active Record Model base class (`Model`) — ✅
-  - Server-Side HTML View Engine (`res.view()`) — ✅
+    end-to-end with identical CRUD behavior**) — [Completed]
+  - Active Record Model base class (`Model`) — [Completed]
+  - Server-Side HTML View Engine (`res.view()`) — [Completed]
   - CLI Scaffolding (`forge serve`, `make:controller`, `make:model`, `make:migration`,
-    `make:service`, `make:middleware`, `routes:list`) — ✅
+    `make:service`, `make:middleware`, `routes:list`) — [Completed]
   - Dogfood Application (Todo App, HTML UI + JSON API, verified on both SQLite and
-    MySQL) — ✅
+    MySQL) — [Completed]
   - Single-source architecture cleanup (orphaned `src/core/` removed, aliases
-    standardized) — ✅
+    standardized) — [Completed]
 
-- **v0.2 — Security & Stability** — ✅ **COMPLETED & VERIFIED**
-  - Task 0: Global Error Handler Verification — ✅ Verified `APP_DEBUG=true` JSON/HTML and `APP_DEBUG=false` production response.
-  - Task 1: Input Validation Layer — ✅ Implemented pipe-separated rules (`required`, `email`, `min:N`, `max:N`, `numeric`, `string`, `boolean`), `req.validate()`, `ValidationError` 422 JSON formatting, verified with `TodoController.store()`.
-  - Task 2: Mass-Assignment Protection — ✅ Implemented `fillable`/`guarded` in `Model`, safe default Option A (guarding `id`, `created_at`, `updated_at`, `deleted_at`), updated `Todo.ts`, verified unauthorized field stripping.
-  - Task 3: CSRF Protection — ✅ Implemented `CsrfMiddleware`, `forge_session` cookie, automatic `csrf_field`/`csrf_token` view injection, HTTP 419 rejection on mismatch, verified end-to-end with Todo HTML forms.
-  - Task 4: Rate Limiting Middleware — ✅ Implemented `RateLimiter` sliding-window engine, `@RateLimit(maxAttempts, windowSeconds)` decorator, HTTP 429 response with `Retry-After` header, verified with 4 sequential requests to `POST /todos`.
-  - Task 5: Password Hashing Helper — ✅ Implemented `Hash` class & `hash` helper using SIMD-accelerated native Argon2id (`Bun.password`), verified round-trip `make()` and `verify()` success/failure.
-  - Task 6: Secrets Redaction — ✅ Implemented `ErrorDisplayEngine.redactSecrets()` scanning `.env` values, verified `[REDACTED]` replacement for process secrets in debug error outputs.
+- **v0.2 — Security & Stability** — **COMPLETED & VERIFIED**
+  - Task 0: Global Error Handler Verification — [Completed] Verified `APP_DEBUG=true` JSON/HTML and `APP_DEBUG=false` production response.
+  - Task 1: Input Validation Layer — [Completed] Implemented pipe-separated rules (`required`, `email`, `min:N`, `max:N`, `numeric`, `string`, `boolean`), `req.validate()`, `ValidationError` 422 JSON formatting, verified with `TodoController.store()`.
+  - Task 2: Mass-Assignment Protection — [Completed] Implemented `fillable`/`guarded` in `Model`, safe default Option A (guarding `id`, `created_at`, `updated_at`, `deleted_at`), updated `Todo.ts`, verified unauthorized field stripping.
+  - Task 3: CSRF Protection — [Completed] Implemented `CsrfMiddleware`, `forge_session` cookie, automatic `csrf_field`/`csrf_token` view injection, HTTP 419 rejection on mismatch, verified end-to-end with Todo HTML forms.
+  - Task 4: Rate Limiting Middleware — [Completed] Implemented `RateLimiter` sliding-window engine, `@RateLimit(maxAttempts, windowSeconds)` decorator, HTTP 429 response with `Retry-After` header, verified with 4 sequential requests to `POST /todos`.
+  - Task 5: Password Hashing Helper — [Completed] Implemented `Hash` class & `hash` helper using SIMD-accelerated native Argon2id (`Bun.password`), verified round-trip `make()` and `verify()` success/failure.
+  - Task 6: Secrets Redaction — [Completed] Implemented `ErrorDisplayEngine.redactSecrets()` scanning `.env` values, verified `[REDACTED]` replacement for process secrets in debug error outputs.
 
-- **v0.3 — React + Vite SSR** — ✅ **COMPLETED & VERIFIED**
-  - Security & Access Control Regression Suite — ✅ Created `tests/integration/SecurityAccessControl.test.ts` (`bun run test:security`), verified 404 responses for `/packages/forge/src/view/ViewEngine.ts`, `/config/database.ts`, `/.env`, and `/package.json`, and 200 OK for `/todos`.
-  - Task 1: Vite Dev Server Integration (Middleware Mode) — ✅ Created `vite.config.ts`, `ViteDevServer.ts`, integrated Vite middleware mode, verified zero pre-existing route regressions (`/todos/ui`, `/todos`).
-  - Task 2: Page Resolution + SSR Render Pipeline — ✅ Implemented `ReactEngine.ts`, updated `res.view()` to resolve `resources/js/pages/*.tsx` first, created `resources/js/pages/todos/index.tsx`, verified server-rendered HTML payload via `curl`.
-  - Task 3: Client-Side Hydration — ✅ Implemented `resources/js/entry-client.tsx`, serialized `{ page, props }` in `__FORGETS_DATA__` script tag, verified hydration in Chrome browser with zero console hydration warnings and verified interactivity.
-  - Task 4: Production Build Pipeline — ✅ Created `resources/js/entry-server.tsx`, configured Vite client manifest & SSR bundle builds (`bun run build`), verified production bundle size reduction (`entry-client-*.js` ~384 KB / 116 KB gzip vs 964 KB dev bundle), updated production server path to load compiled SSR bundle (`dist/server/entry-server.js`) & manifest assets (`dist/client/manifest.json`) without Vite dev server, verified `NODE_ENV=production` execution.
-  - Task 5: SEO Meta Tags — ✅ Implemented chainable `res.view().meta({ title, description })` API on `ForgeResponse`, injected `<title>` and `<meta name="description">` tags into `<head>` of SSR shell document, verified raw crawlable HTML via `curl` (`GET /todos/react` in production mode).
+- **v0.3 — React + Vite SSR** — **COMPLETED & VERIFIED**
+  - Security & Access Control Regression Suite — [Completed] Created `tests/integration/SecurityAccessControl.test.ts` (`bun run test:security`), verified 404 responses for `/packages/forge/src/view/ViewEngine.ts`, `/config/database.ts`, `/.env`, and `/package.json`, and 200 OK for `/todos`.
+  - Task 1: Vite Dev Server Integration (Middleware Mode) — [Completed] Created `vite.config.ts`, `ViteDevServer.ts`, integrated Vite middleware mode, verified zero pre-existing route regressions (`/todos/ui`, `/todos`).
+  - Task 2: Page Resolution + SSR Render Pipeline — [Completed] Implemented `ReactEngine.ts`, updated `res.view()` to resolve `resources/js/pages/*.tsx` first, created `resources/js/pages/todos/index.tsx`, verified server-rendered HTML payload via `curl`.
+  - Task 3: Client-Side Hydration — [Completed] Implemented `resources/js/entry-client.tsx`, serialized `{ page, props }` in `__FORGETS_DATA__` script tag, verified hydration in Chrome browser with zero console hydration warnings and verified interactivity.
+  - Task 4: Production Build Pipeline — [Completed] Created `resources/js/entry-server.tsx`, configured Vite client manifest & SSR bundle builds (`bun run build`), verified production bundle size reduction (`entry-client-*.js` ~384 KB / 116 KB gzip vs 964 KB dev bundle), updated production server path to load compiled SSR bundle (`dist/server/entry-server.js`) & manifest assets (`dist/client/manifest.json`) without Vite dev server, verified `NODE_ENV=production` execution.
+  - Task 5: SEO Meta Tags — [Completed] Implemented chainable `res.view().meta({ title, description })` API on `ForgeResponse`, injected `<title>` and `<meta name="description">` tags into `<head>` of SSR shell document, verified raw crawlable HTML via `curl` (`GET /todos/react` in production mode).
 
-- **v0.4 — SSR Polish & DX** — ✅ **COMPLETED & VERIFIED**
-  - Task 1: HTML Error Page for Browser-Rendered Routes — ✅ Enhanced `Application.handleError()` request type detection to distinguish HTML browser navigation (`Accept: text/html`) from API requests (`Accept: application/json` or `/api/*`), integrated `ErrorDisplayEngine.renderHtml()` for debug mode (`APP_DEBUG=true`) with secrets redaction & code snippets, and `ErrorDisplayEngine.renderProductionHtml()` for production mode (`APP_DEBUG=false`), preserved JSON error format unchanged.
-  - Task 2: Client Hydration Mismatch Guidance — ✅ Added dev-mode console interceptor wrapper around `hydrateRoot` in `resources/js/entry-client.tsx`, re-logging clearer `⚡ [ForgeTS Hydration Warning]` framework guidance alongside React's original warning, disabled in production.
-  - Task 3: Single-Shot Full CRUD Scaffolder (`forge make:page <name> --crud`) — ✅ Added `forge make:page <PageName> [--crud]` command to `bin/forge.ts`, scaffolding Model, Migration, Controller, 4 React Pages (`index`, `create`, `edit`, `show`), and web route registration with overwrite safety warnings.
-  - Task 4: Per-Page Code Splitting — ✅ Configured dynamic `import()` page component resolution in `resources/js/entry-client.tsx`, verified Vite client build output produces separate page chunks (`dist/client/assets/*.js`), added targeted `<link rel="modulepreload">` injection in `ReactEngine.ts` for production page rendering.
-  - Task 5: Minimal Documentation Site (React SSR Dogfooding) — ✅ Dogfooded React SSR to build `/docs` site (`DocsController.ts`, `resources/js/pages/docs/index.tsx`, `routing.tsx`, `models.tsx`, `views.tsx`, `cli.tsx`), verified end-to-end with 24 passing integration tests.
+- **v0.4 — SSR Polish & DX** — **COMPLETED & VERIFIED**
+  - Task 1: HTML Error Page for Browser-Rendered Routes — [Completed] Enhanced `Application.handleError()` request type detection to distinguish HTML browser navigation (`Accept: text/html`) from API requests (`Accept: application/json` or `/api/*`), integrated `ErrorDisplayEngine.renderHtml()` for debug mode (`APP_DEBUG=true`) with secrets redaction & code snippets, and `ErrorDisplayEngine.renderProductionHtml()` for production mode (`APP_DEBUG=false`), preserved JSON error format unchanged.
+  - Task 2: Client Hydration Mismatch Guidance — [Completed] Added dev-mode console interceptor wrapper around `hydrateRoot` in `resources/js/entry-client.tsx`, re-logging clearer `[ForgeTS Hydration Warning]` framework guidance alongside React's original warning, disabled in production.
+  - Task 3: Single-Shot Full CRUD Scaffolder (`forge make:page <name> --crud`) — [Completed] Added `forge make:page <PageName> [--crud]` command to `bin/forge.ts`, scaffolding Model, Migration, Controller, 4 React Pages (`index`, `create`, `edit`, `show`), and web route registration with overwrite safety warnings.
+  - Task 4: Per-Page Code Splitting — [Completed] Configured dynamic `import()` page component resolution in `resources/js/entry-client.tsx`, verified Vite client build output produces separate page chunks (`dist/client/assets/*.js`), added targeted `<link rel="modulepreload">` injection in `ReactEngine.ts` for production page rendering.
+  - Task 5: Minimal Documentation Site (React SSR Dogfooding) — [Completed] Dogfooded React SSR to build `/docs` site (`DocsController.ts`, `resources/js/pages/docs/index.tsx`, `routing.tsx`, `models.tsx`, `views.tsx`, `cli.tsx`), verified end-to-end with 24 passing integration tests.
 
-- **Database Architecture Refactor (Removing SQLite, Adding MongoDB, Fail-fast Resilience & Unified Active Record API)** — ✅ **COMPLETED & VERIFIED**
-  - Task 1: Clean Removal of SQLite Driver — ✅ Removed `bun:sqlite` engine, `ForgeBunSqliteDialect`, `BunConnection`, `BunDriver`, removed `kysely-bun-sqlite` dependency, updated `.env.example` and `config/database.ts` (MySQL default).
-  - Task 2: Native MongoDB Driver & Unified Active Record API — ✅ Created `DatabaseDriver` interface & `MongoDriver` implementation wrapping official `mongodb` package (`^6.12.0`), added `LogEntry` Mongo-backed model, proved 100% identical Active Record API surface (`.find()`, `.where()`, `.create()`, `.save()`, `.delete()`) across both MySQL and MongoDB models.
-  - Task 3: Boot-Time Fail-Fast Check & Request-Time 503 Handling — ✅ Implemented `verifyDatabaseConnectionOnBoot()` in `Connection.ts` and `Application.start()` (logs redacted connection details and exits with code 1 if DB is unreachable); updated `Application.handleError()` to catch mid-request database outages and return HTTP **503 Service Unavailable** (verified with live test outputs).
-  - Task 4: Load Testing & Connection Pool Backpressure — ✅ Tested MySQL and MongoDB endpoints under 10, 100, 500, 1000 concurrent connections via `autocannon` (peak 30,977 Req/sec, 0% error rate, zero process crashes under 1000 connections).
+- **Database Architecture Refactor (Removing SQLite, Adding MongoDB, Fail-fast Resilience & Unified Active Record API)** — **COMPLETED & VERIFIED**
+  - Task 1: Clean Removal of SQLite Driver — [Completed] Removed `bun:sqlite` engine, `ForgeBunSqliteDialect`, `BunConnection`, `BunDriver`, removed `kysely-bun-sqlite` dependency, updated `.env.example` and `config/database.ts` (MySQL default).
+  - Task 2: Native MongoDB Driver & Unified Active Record API — [Completed] Created `DatabaseDriver` interface & `MongoDriver` implementation wrapping official `mongodb` package (`^6.12.0`), added `LogEntry` Mongo-backed model, proved 100% identical Active Record API surface (`.find()`, `.where()`, `.create()`, `.save()`, `.delete()`) across both MySQL and MongoDB models.
+  - Task 3: Boot-Time Fail-Fast Check & Request-Time 503 Handling — [Completed] Implemented `verifyDatabaseConnectionOnBoot()` in `Connection.ts` and `Application.start()` (logs redacted connection details and exits with code 1 if DB is unreachable); updated `Application.handleError()` to catch mid-request database outages and return HTTP **503 Service Unavailable** (verified with live test outputs).
+  - Task 4: Load Testing & Connection Pool Backpressure — [Completed] Tested MySQL and MongoDB endpoints under 10, 100, 500, 1000 concurrent connections via `autocannon` (peak 30,977 Req/sec, 0% error rate, zero process crashes under 1000 connections).
 
 - **v0.5 — Batteries Included** (queues, storage, mail, cache, events) — NOT STARTED
 
@@ -165,6 +165,15 @@ conventions, to prove the DX works the way a real developer would experience it.
   `example/` → `app/` reversal), say so explicitly in the response** ("this supersedes
   the earlier rename decision") rather than silently doing it — makes the history
   traceable without needing a full audit later.
+- **Strict Prohibition on Emojis (RULES.md Rule 8)**: As part of repository
+  professionalization, all emoji decorations have been removed and prohibited from
+  future technical documentation, source code, comments, and CLI outputs. Plain text
+  conventions and standard badges must be used.
+- **Portability & Environment Genericity (RULES.md Rule 9)**: Machine-specific paths,
+  developer usernames, local timezones, and uncontrolled localhost addresses must never
+  be embedded in framework source, configurations, or unit test assertions. Generic
+  framework tests must use neutral fixtures, dynamic path derivation, and synthetic
+  domains (`http://example.test`).
 
 ---
 

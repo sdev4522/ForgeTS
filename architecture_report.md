@@ -1,4 +1,4 @@
-# ⚡ ForgeTS Framework — Architectural Analysis & Report (v0.1.0)
+# ForgeTS Framework — Architectural Analysis & Report (v0.1.0)
 
 > **ForgeTS** is a batteries-included, TypeScript-first web framework running on Bun. It brings Laravel's developer experience (DX) and structure to the JavaScript/TypeScript ecosystem with maximum runtime speed.
 
@@ -70,9 +70,10 @@ ForgeTS is built on a modular, decoupled architecture where **framework engine i
 
 ### 2.3 Active Record ORM & Multi-Driver Database Layer (`packages/forge/src/database/`)
 - **Eloquent / Lucid-inspired Model**: Abstract `Model` base class with Proxy-backed attribute access (`model._attributes`).
-- **Dual SQL Driver Engine**:
+- **Multi-Driver Engine**:
   - **MySQL / MariaDB**: Powered by `mysql2` connection pool & Kysely `MysqlDialect`.
-  - **SQLite**: Zero-dependency Bun-native driver using `bun:sqlite` & Kysely.
+  - **MongoDB**: Native NoSQL document driver wrapping official `mongodb` client, sharing identical Active Record CRUD API.
+  - *Note: SQLite driver was superseded and cleanly removed per ADR-003 in favor of MySQL and MongoDB.*
 - **Fluent QueryBuilder**: Chainable queries (`Model.where()`, `Model.find()`, `Model.all()`, `Model.create()`, `model.save()`, `model.delete()`).
 - **Auto Timestamps & Schema Migrator**: Automatically manages `created_at` / `updated_at` and runs idempotent Kysely table migrations.
 
@@ -129,7 +130,7 @@ my-framework/
 │   └── database.ts                  # Database connection settings (MySQL / SQLite / Postgres)
 │
 ├── public/                          # Static Web Assets (CSS, Images, Favicons)
-├── storage/                         # Local SQLite DB & MySQL data storage
+├── storage/                         # Runtime logs, uploads, and cached artifacts
 ├── bootstrap/
 │   └── app.ts                       # Application Wiring & Bootstrap
 └── bin/
@@ -143,16 +144,18 @@ my-framework/
 
 | Category | Feature | Status |
 |---|---|---|
-| **Runtime** | Bun 1.3+ Native HTTP Server (`Bun.serve()`) | ✅ Fully Implemented |
-| **Routing** | Radix Trie, Params (`:id`), Verbs, Static Assets (`public/`) | ✅ Fully Implemented |
-| **Decorators** | TC39 Stage 3 (`@Controller`, `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`) | ✅ Fully Implemented |
-| **DI Container** | Recursive Constructor Injection & Singleton Lifecycle | ✅ Fully Implemented |
-| **ORM** | Active Record (`Model.find()`, `Model.all()`, `Model.create()`, `.save()`) | ✅ Fully Implemented |
-| **Database** | Dual Driver Support: **MySQL** (MariaDB) & **SQLite** | ✅ Fully Implemented |
-| **View Engine** | Server-Side HTML Template Rendering (`res.view()`) | ✅ Fully Implemented |
-| **Form Handling** | `application/x-www-form-urlencoded` Form Submissions | ✅ Fully Implemented |
-| **Error Handling** | Global Error Handler & Debug Trace Renderer (`APP_DEBUG`) | ✅ Fully Implemented |
-| **Dogfood App** | Full Todo App (HTML UI & JSON API) running on MySQL | ✅ Verified & Live |
+| **Runtime** | Bun 1.3+ Native HTTP Server (`Bun.serve()`) | Fully Implemented |
+| **Routing** | Radix Trie, Params (`:id`), Verbs, Static Assets (`public/`) | Fully Implemented |
+| **Decorators** | TC39 Stage 3 (`@Controller`, `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`) | Fully Implemented |
+| **DI Container** | Recursive Constructor Injection & Singleton Lifecycle | Fully Implemented |
+| **ORM** | Active Record (`Model.find()`, `Model.all()`, `Model.create()`, `.save()`) | Fully Implemented |
+| **Database** | Multi-Driver Support: **MySQL** (relational) & **MongoDB** (document) | Fully Implemented |
+| **View Engine** | Server-Side HTML Template Rendering (`res.view()`) & React SSR | Fully Implemented |
+| **Form Handling** | `application/x-www-form-urlencoded` Form Submissions | Fully Implemented |
+| **Error Handling** | Global Error Handler & Debug Trace Renderer (`APP_DEBUG`) | Fully Implemented |
+| **Security** | CSRF middleware, rate limiting, and process secret redaction | Fully Implemented |
+| **Events** | Deterministic synchronous and asynchronous event dispatching | Fully Implemented |
+| **Dogfood App** | Full Todo App (HTML UI & React SSR) and Notes CRUD on MySQL | Verified & Live |
 
 ---
 

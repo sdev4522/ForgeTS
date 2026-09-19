@@ -13,6 +13,12 @@ export interface InjectableOptions {
 /**
  * Mark a class as injectable into the DI container.
  *
+ * TC39 Stage 3 Decorators Architecture:
+ * Bun 1.3+ provides native context.metadata Symbol support on decorated classes.
+ * Rather than relying on experimental reflect-metadata or monkey-patching class prototypes,
+ * ForgeTS attaches metadata directly to context.metadata[Symbol.for('forge:injectable')].
+ * This avoids global pollution and ensures future-proof standards compliance.
+ *
  * @example
  * ```ts
  * @Injectable({ lifetime: 'singleton' })

@@ -30,6 +30,16 @@ export abstract class Model {
   /** Internal attributes storage */
   public _attributes: Record<string, any> = {};
 
+  /**
+   * Instantiate an Active Record model.
+   *
+   * Architectural Note:
+   * Returns an ES6 Proxy wrapping the model instance. Property reads/writes
+   * that do not match internal symbols or prototype methods are transparently
+   * routed to this._attributes. This allows developers to use natural property syntax
+   * (e.g. `user.name = 'Alice'`) while the underlying ORM manages dirty state tracking,
+   * database column mapping, and mass-assignment filtering.
+   */
   constructor(attributes: Record<string, any> = {}) {
     this.fill(attributes);
 

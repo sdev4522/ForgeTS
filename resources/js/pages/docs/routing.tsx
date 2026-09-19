@@ -3,7 +3,7 @@ import { DocsLayout } from '../../components/DocsLayout.js';
 
 export default function DocsRouting() {
   return (
-    <DocsLayout currentPath="/docs/routing" title="🛣️ Routing & Decorators">
+    <DocsLayout currentPath="/docs/routing" title="Routing & Decorators">
       <p style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem' }}>
         ForgeTS routing is driven by TC39 Stage 3 decorators and explicit controller registration.
       </p>

@@ -17,7 +17,7 @@ export function AppLayout({ children, badgeText = 'React 19 SSR' }: AppLayoutPro
       {/* Shared Header */}
       <div className="header">
         <div className="logo">
-          ⚡ <span>Forge</span>TS (React SSR)
+          <span>Forge</span>TS (React SSR)
         </div>
         <div className="badge">
           <span className="dot"></span> {badgeText}

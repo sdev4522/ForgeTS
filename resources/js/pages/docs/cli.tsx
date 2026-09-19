@@ -15,7 +15,7 @@ export default function DocsCli() {
   ];
 
   return (
-    <DocsLayout currentPath="/docs/cli" title="⚡ CLI Scaffolding Commands">
+    <DocsLayout currentPath="/docs/cli" title="CLI Scaffolding Commands">
       <p style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem' }}>
         ForgeTS includes a built-in CLI (`forge` / `bun run forge`) for rapid scaffolding and development workflows.
       </p>

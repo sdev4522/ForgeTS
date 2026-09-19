@@ -71,7 +71,7 @@ async function hydrate() {
           if (!hydrationMismatchDetected) {
             hydrationMismatchDetected = true;
             console.warn(
-              `⚡ [ForgeTS Hydration Warning] Hydration mismatch on page: '${page}'\n` +
+              `[ForgeTS Hydration Warning] Hydration mismatch on page: '${page}'\n` +
                 `   This usually means server-rendered props/HTML differ from client props.\n` +
                 `   Common causes: non-deterministic values like Date.now() or Math.random(),\n` +
                 `   browser-only APIs (window/localStorage) rendered during SSR, or mismatched props.`
@@ -105,7 +105,7 @@ async function hydrate() {
         hydrateRoot(container, element);
       }
 
-      console.log(`⚡ [ForgeTS Hydration] Hydrated page '${page}' successfully.`);
+      console.log(`[ForgeTS Hydration] Hydrated page '${page}' successfully.`);
     }
   } catch (err) {
     console.error('[ForgeTS Hydration Error]', err);

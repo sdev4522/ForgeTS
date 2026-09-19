@@ -23,7 +23,7 @@ describe('HTML Error Handler & Request Type Detection', () => {
 
   test('Browser HTML request with APP_DEBUG=true returns rich debug HTML error page', async () => {
     process.env.APP_DEBUG = 'true';
-    const req = new globalThis.Request('http://localhost:3000/test/error', {
+    const req = new globalThis.Request('http://example.test/test/error', {
       headers: {
         accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
@@ -43,7 +43,7 @@ describe('HTML Error Handler & Request Type Detection', () => {
 
   test('Browser HTML request with APP_DEBUG=false returns styled production HTML error page', async () => {
     process.env.APP_DEBUG = 'false';
-    const req = new globalThis.Request('http://localhost:3000/test/error', {
+    const req = new globalThis.Request('http://example.test/test/error', {
       headers: {
         accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
@@ -64,7 +64,7 @@ describe('HTML Error Handler & Request Type Detection', () => {
 
   test('API JSON request keeps existing JSON error response format unchanged (APP_DEBUG=true)', async () => {
     process.env.APP_DEBUG = 'true';
-    const req = new globalThis.Request('http://localhost:3000/api/test/error', {
+    const req = new globalThis.Request('http://example.test/api/test/error', {
       headers: {
         accept: 'application/json',
       },
@@ -82,7 +82,7 @@ describe('HTML Error Handler & Request Type Detection', () => {
 
   test('API JSON request keeps existing JSON error response format unchanged (APP_DEBUG=false)', async () => {
     process.env.APP_DEBUG = 'false';
-    const req = new globalThis.Request('http://localhost:3000/api/test/error', {
+    const req = new globalThis.Request('http://example.test/api/test/error', {
       headers: {
         accept: 'application/json',
       },

@@ -79,6 +79,15 @@ export class ReactEngine {
 
   /**
    * Render a React page component to an HTML document string with SSR markup.
+   *
+   * Architectural Design:
+   * 1. Development Mode: Executes via ViteDevServer's ssrLoadModule, supporting instant
+   *    Hot Module Replacement (HMR) and fast component compilation on the fly.
+   * 2. Production Mode: Executes via precompiled dist/server/entry-server.js bundle,
+   *    consults dist/client/manifest.json for hashed asset URLs, and emits targeted
+   *    `<link rel="modulepreload">` tags for page-specific code chunks.
+   * 3. Hydration Handshake: Serializes page name and props into an escaped JSON payload
+   *    inside `<script id="__FORGETS_DATA__">` to ensure deterministic client hydration.
    */
   async renderPage(name: string, props: Record<string, any> = {}): Promise<string> {
     let bodyHtml = '';

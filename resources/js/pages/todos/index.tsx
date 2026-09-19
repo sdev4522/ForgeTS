@@ -23,7 +23,7 @@ export default function TodoPage({ todos = [], csrf_token = '' }: TodoPageProps)
       {/* Header */}
       <div className="header">
         <div className="logo">
-          ⚡ <span>Forge</span>TS (React SSR)
+          <span>Forge</span>TS (React SSR)
         </div>
         <div className="badge">
           <span className="dot"></span> React 19 SSR Enabled
@@ -71,7 +71,7 @@ export default function TodoPage({ todos = [], csrf_token = '' }: TodoPageProps)
                         type="submit"
                         className={`btn-toggle ${isDone ? 'done' : ''}`}
                       >
-                        {isDone ? '✓ Completed' : 'Mark Done'}
+                        {isDone ? 'Completed' : 'Mark Done'}
                       </button>
                     </form>
 

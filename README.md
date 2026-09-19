@@ -1,24 +1,26 @@
-# ⚡ ForgeTS
+# ForgeTS
 
 > **Batteries-included, TypeScript-first web framework running on Bun.**  
 > *Laravel's developer experience meets JavaScript's raw speed.*
 
 ---
 
-## 🚀 Key Highlights
+## Key Highlights
 
-- **⚡ Bun-Native Speed**: Built directly on `Bun.serve()` with zero Express/Koa abstraction bloat. Sub-50ms cold starts and 1MB idle heap.
-- **🎯 TC39 Stage 3 Decorators**: Future-proof ECMAScript standard decorators (`@Controller`, `@Get`, `@Post`, `@Middleware`, `@Column`). Zero `experimentalDecorators` or `reflect-metadata` overhead.
-- **🛤️ Radix-Trie Router**: O(path-segments) route matching that never degrades as your application route count grows.
-- **🗄️ Active Record ORM**: Built on Kysely with full type inference, fluent queries (`User.find()`, `$user.save()`), and eager relationship loading (`.with('posts')`).
-- **🧩 Dependency Injection**: Inversion of Control container with explicit singleton and transient lifetimes.
-- **🎨 HTML View Engine**: Built-in template renderer (`resources/views/`) and automatic static file serving (`public/`).
-- **🛠️ `forge` CLI**: Scaffolding tool for controllers, models, migrations, services, middleware, and route auditing (`forge routes:list`).
-- **📏 Strict Separation of Concerns**: Enforces clean boundaries — Controllers handle HTTP → Services execute logic → Models query data → Views render UI.
+- **Bun-Native Engine**: Built directly on `Bun.serve()` with zero intermediate abstraction bloat. Sub-millisecond routing and minimal idle heap.
+- **TC39 Stage 3 Decorators**: Future-proof ECMAScript standard decorators (`@Controller`, `@Get`, `@Post`, `@Middleware`, `@Column`). Zero `experimentalDecorators` or `reflect-metadata` overhead.
+- **Radix-Trie Router**: O(path-segments) route matching that never degrades as your application route count grows.
+- **Active Record ORM**: Built on Kysely with full type inference, fluent queries (`User.find()`, `user.save()`), and eager relationship loading (`.with('posts')`). Supports both MySQL relational storage and MongoDB document engines with a unified API.
+- **Dependency Injection**: Inversion of Control container with explicit singleton and transient lifetimes.
+- **Dual View Engines**: Built-in server HTML View Engine (`resources/views/`) and React 19 server-side rendering (`resources/js/pages/`) with client hydration and Vite dev server integration.
+- **Event Subsystem**: Deterministic event dispatcher supporting synchronous and asynchronous listeners with automatic container dependency resolution.
+- **Security by Default**: Synchronized CSRF token verification, sliding-window rate limiting, input validation pipelines, and process secret redaction.
+- **`forge` CLI**: Scaffolding tool for controllers, models, migrations, services, middleware, pages, and route auditing (`forge routes:list`).
+- **Strict Separation of Concerns**: Enforces clean boundaries: Controllers handle HTTP → Services execute logic → Models query data → Views render UI.
 
 ---
 
-## 📦 Folder Structure
+## Folder Structure
 
 ForgeTS follows convention-over-configuration directory placement so any developer can navigate the codebase effortlessly:
 
@@ -28,9 +30,7 @@ my-app/
 │   ├── controllers/       # HTTP request handlers (thin controllers)
 │   ├── models/            # Active Record models (extend Model)
 │   ├── services/          # Business logic (@Injectable classes)
-│   ├── middleware/        # Request pipeline middleware
-│   ├── providers/         # Service container composition roots
-│   └── validators/        # Zod request validation schemas
+│   └── middleware/        # Request pipeline middleware
 ├── bootstrap/
 │   └── app.ts             # Composition root & app bootstrapping
 ├── bin/
@@ -39,22 +39,22 @@ my-app/
 ├── config/                # Typed configuration modules (app.ts, database.ts)
 ├── database/
 │   ├── migrations/        # Schema migration scripts
-│   ├── seeders/           # Database seed scripts
-│   └── factories/         # Test model factories
+│   └── seeders/           # Database seed scripts
 ├── public/                # Static assets (CSS, JS, images, favicon)
 ├── resources/
+│   ├── js/                # React SSR pages, components, and client entry
 │   └── views/             # Server-rendered HTML templates (.html)
 ├── routes/
 │   ├── api.ts             # API route definitions (/api)
 │   └── web.ts             # Web page route definitions (/)
-├── storage/               # Runtime logs, cache, uploads, persistent storage
 └── tests/
-    └── unit/              # Bun unit tests (*.test.ts)
+    ├── unit/              # Unit test suites (*.test.ts)
+    └── integration/       # Integration & security regression suites
 ```
 
 ---
 
-## 🛠️ Quick Start
+## Quick Start
 
 ### 1. Installation
 
@@ -64,7 +64,15 @@ Ensure you have [Bun](https://bun.sh) (v1.3+) installed:
 bun install
 ```
 
-### 2. Run Development Server
+### 2. Configure Environment
+
+Copy the example environment file and configure your database settings:
+
+```bash
+cp .env.example .env
+```
+
+### 3. Run Development Server
 
 ```bash
 # Start with hot reloading
@@ -81,17 +89,18 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 💻 Core Framework Usage
+## Core Framework Usage
 
 ### 1. Controllers & Routing
 
-Controllers handle HTTP requests and return standard responses or views:
+Controllers handle HTTP requests and return typed responses or views:
 
 ```typescript
 // app/controllers/UserController.ts
 import { Controller, Get, Post, Middleware } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
 import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
+import { User } from '../models/User.js';
 
 @Controller('/users')
 @Middleware(AuthMiddleware)
@@ -129,30 +138,31 @@ export default router;
 
 ---
 
-### 2. Views & Static Assets
+### 2. Views (React SSR & HTML View Engine)
 
-Render HTML templates located in `resources/views/`:
+#### React Server-Side Rendering
+Pages located under `resources/js/pages/*.tsx` are rendered server-side and hydrated on the client:
 
 ```typescript
-// app/controllers/WelcomeController.ts
-import { Controller, Get } from '@forge/core';
-import type { Request, ForgeResponse } from '@forge/core';
+// app/controllers/TodoController.ts
+import { Controller, Get, Request, ForgeResponse } from '@forge/core';
+import { Todo } from '../models/Todo.js';
 
-@Controller('/')
-export class WelcomeController {
+@Controller('/todos')
+export class TodoController {
   @Get('/')
-  async welcome(_req: Request, res: ForgeResponse) {
-    return res.view('welcome', {
-      version: '0.1.0',
-      uptime: '10m',
-    });
+  async index(_req: Request, res: ForgeResponse) {
+    const todos = await Todo.all();
+    return res.view('todos/index', { todos });
   }
 }
 ```
 
-View Template (`resources/views/welcome.html`):
+#### Built-in HTML View Engine
+Alternatively, plain HTML templates located in `resources/views/` can be rendered with `{{ var }}` syntax:
 
 ```html
+<!-- resources/views/welcome.html -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -233,9 +243,33 @@ const userService = container.resolve(UserService);
 
 ---
 
-## 🛠️ CLI Reference
+### 5. Events Subsystem
 
-The `forge` CLI provides instant scaffolding and route auditing:
+Define decoupled events and listeners with deterministic execution and DI support:
+
+```typescript
+// app/events/UserRegistered.ts
+export class UserRegistered {
+  constructor(public user: User) {}
+}
+
+// app/listeners/SendWelcomeEmail.ts
+export class SendWelcomeEmail {
+  async handle(event: UserRegistered) {
+    // Send onboarding email
+  }
+}
+
+// Register and dispatch
+app.events.listen(UserRegistered, SendWelcomeEmail);
+await app.events.dispatch(new UserRegistered(user));
+```
+
+---
+
+## CLI Reference
+
+The `forge` CLI provides scaffolding and route auditing:
 
 ```bash
 # Display all registered application routes in a table
@@ -246,6 +280,9 @@ forge make:controller UserController
 
 # Scaffold an Active Record model (with optional migration)
 forge make:model Post --migration
+
+# Scaffold a full React page CRUD flow (Model, Migration, Controller, 4 React Pages)
+forge make:page Note --crud
 
 # Scaffold an @Injectable() business logic service
 forge make:service PostService
@@ -259,31 +296,37 @@ forge make:migration create_posts_table
 
 ---
 
-## 🧪 Testing
+## Testing
 
-Run unit tests using Bun's native test runner:
+Run unit and integration tests using Bun's native test runner:
 
 ```bash
 bun test
 ```
 
-Test results:
+Run security access control regression tests:
 
+```bash
+bun run test:security
 ```
-bun test v1.3.14
-tests/unit/Model.test.ts:
-✓ Active Record Model & QueryBuilder > Model.create() and Model.find()
-✓ Active Record Model & QueryBuilder > Model.where() and save() update
-✓ Active Record Model & QueryBuilder > Relationships: HasMany & BelongsTo eager loading
-✓ Active Record Model & QueryBuilder > Model.delete()
 
- 4 pass
- 0 fail
-Ran 4 tests across 1 file. [133.00ms]
+Run production client and SSR bundle builds:
+
+```bash
+bun run build
 ```
 
 ---
 
-## 📄 License
+## Engineering Standards
 
-Designed and built with ⚡ for high performance TypeScript development.
+ForgeTS enforces strict engineering standards:
+- Zero emojis in source code, technical documentation, CLI output, logs, or error messages (see `RULES.md` Rule 8).
+- Complete separation of framework core engine (`packages/forge/src/`) and application logic (`app/`).
+- Future-proof standards compliance using native TC39 Stage 3 decorator metadata.
+
+---
+
+## License
+
+MIT License. Designed and built for high-performance TypeScript development on Bun.

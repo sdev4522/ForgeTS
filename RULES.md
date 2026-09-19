@@ -103,12 +103,53 @@ short, specific question. Do not:
 
 ---
 
+## Rule 8 — Strict Prohibition on Emojis
+
+Emojis must never be used in ForgeTS source code or technical documentation.
+This codebase maintains a serious, production-grade standard of engineering.
+
+- **Source Code**: Emojis must not be introduced into TypeScript, JavaScript, TSX/JSX, HTML, CSS, or shell scripts.
+- **Documentation**: Emojis must not be introduced into Markdown documents, code examples, or technical headings.
+- **CLI & Diagnostics**: Emojis must not be used in framework CLI output, comments, logs, or error messages unless a future explicit project decision permits them.
+- **Cleanup**: Existing emoji usage must be removed during cleanup passes.
+- **Plain Text Standard**: Technical communication and status indications must use professional plain text tags (e.g. `[OK]`, `[ERROR]`, `[WARN]`, `Implemented`, `Verified`) rather than decorative icons.
+
+---
+
+## Rule 9 — Portability and Hardcoded Environment Prohibitions
+
+Framework code and tests must never contain developer-specific absolute filesystem paths, machine usernames, local directory structures, machine-specific timezones, or uncontrolled environment assumptions. ForgeTS must clone and run cleanly on any machine, OS, or CI runner.
+
+- **Filesystem Paths**: Never hardcode developer paths (e.g. `/home/user/...`, `C:\Users\...`). Derive paths dynamically from `process.cwd()`, `import.meta.dir`, or runtime configuration.
+- **Framework Tests Must Be Generic**: Generic framework tests must never import or assert against application-specific dogfood fixtures (`TodoController`, `TodoException`, `UserRegistered`) unless the test explicitly targets dogfood application integration. Use controlled test fixtures (e.g. `tests/fixtures/ErrorSourceFixture.ts`, `ExampleController`, `SampleEvent`).
+- **Synthetic Request URLs**: When testing request handling without a real TCP socket, use deterministic synthetic domains (e.g. `http://example.test/path`) rather than `http://localhost:3000`.
+- **Real Server Tests**: When an actual server socket is bound, obtain its dynamic assigned port from `server.port` rather than assuming a fixed port.
+- **Environment & Timezone Defaults**: Framework defaults must be neutral standards (e.g. UTC, UTF-8). Never embed developer-local timezones (e.g. `Asia/Kolkata`, `IST`) into framework defaults or secret sanitizers.
+
+### Examples
+
+**Filesystem Paths:**
+- BAD: `'/home/sdev/Projects/ForgeTS/app/controllers/TodoController.ts'`
+- GOOD: `path.join(process.cwd(), 'tests/fixtures/ErrorSourceFixture.ts')`
+
+**Synthetic Request Metadata:**
+- BAD: `new Request('http://localhost:3000/todos/42')`
+- GOOD: `new Request('http://example.test/items/42')`
+
+**Generic Subsystem Assertions:**
+- BAD (testing generic ErrorDisplayEngine): `expect(html).toContain('TodoController')`
+- GOOD: `expect(html).toContain('ExampleController')` using a controlled test fixture.
+
+---
+
 ## Quick Self-Check Before Submitting Any Response
 
 - [ ] Did I only do what was asked in THIS task, nothing more?
 - [ ] Is src/core/ still 100% free of app-specific logic?
 - [ ] Did I avoid adding dependencies without flagging them?
 - [ ] Did I list exactly which files changed?
+- [ ] Did I verify zero emojis were introduced into code, logs, or documentation?
+- [ ] Did I verify no developer paths, machine-specific values, or uncontrolled localhost URLs were hardcoded?
 - [ ] Can this be verified right now, and did I say how?
 
 If any box is unchecked, fix it before responding.

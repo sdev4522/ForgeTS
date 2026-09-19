@@ -19,19 +19,19 @@ describe('Scaffolded CRUD Flow End-to-End (notes)', () => {
 
   test('1. GET /notes renders React SSR index page with notes list', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/notes', {
+      new globalThis.Request('http://example.test/notes', {
         headers: { accept: 'text/html' },
       })
     );
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('⚡ Notes');
+    expect(html).toContain('Notes');
     expect(html).toContain('notes/index');
   });
 
   test('2. GET /notes/create renders React SSR create form page', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/notes/create', {
+      new globalThis.Request('http://example.test/notes/create', {
         headers: { accept: 'text/html' },
       })
     );
@@ -54,7 +54,7 @@ describe('Scaffolded CRUD Flow End-to-End (notes)', () => {
 
     // Show GET page
     const showRes = await (app as any).handleRequest(
-      new globalThis.Request(`http://localhost:3000/notes/${note.id}`, {
+      new globalThis.Request(`http://example.test/notes/${note.id}`, {
         headers: { accept: 'text/html' },
       })
     );
@@ -65,7 +65,7 @@ describe('Scaffolded CRUD Flow End-to-End (notes)', () => {
 
     // Edit GET page
     const editRes = await (app as any).handleRequest(
-      new globalThis.Request(`http://localhost:3000/notes/${note.id}/edit`, {
+      new globalThis.Request(`http://example.test/notes/${note.id}/edit`, {
         headers: { accept: 'text/html' },
       })
     );

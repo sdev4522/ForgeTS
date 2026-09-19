@@ -61,12 +61,21 @@ export function getMongoDriver(): MongoDriver {
   return _mongoDriverInstance;
 }
 
-export function setDatabaseConnection(db: Kysely<any>): void {
+export function setDatabaseConnection(db: Kysely<any> | null): void {
   _kyselyInstance = db;
 }
 
-export function setMongoDriver(driver: MongoDriver): void {
+export function setMongoDriver(driver: MongoDriver | null): void {
   _mongoDriverInstance = driver;
+}
+
+/**
+ * Reset cached singleton database connections.
+ * Primarily used to ensure test isolation between connection state changes.
+ */
+export function resetDatabaseConnection(): void {
+  _kyselyInstance = null;
+  _mongoDriverInstance = null;
 }
 
 /**
@@ -127,7 +136,7 @@ export async function verifyDatabaseConnectionOnBoot(): Promise<void> {
     }
   } catch (err: any) {
     console.error('\n' + '─'.repeat(70));
-    console.error(`🚨 [ForgeTS Database Boot Failure] Unreachable Database Connection.`);
+    console.error(`[ForgeTS Database Boot Failure] Unreachable Database Connection.`);
     console.error(`   - Connection Name: '${defaultConn}'`);
     console.error(`   - Driver:          '${connConfig.driver}'`);
     console.error(`   - Config:          ${JSON.stringify(sanitizedConfig)}`);

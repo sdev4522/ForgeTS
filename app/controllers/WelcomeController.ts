@@ -5,7 +5,14 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { Controller, Get, Request, ForgeResponse } from '@forge/core';
+import packageJson from '../../package.json';
 
+/**
+ * Controller responsible for the initial framework landing experience.
+ *
+ * Renders the welcome page via React SSR (resources/js/pages/welcome.tsx)
+ * with the built-in HTML View Engine as a fallback.
+ */
 @Controller('/')
 export class WelcomeController {
   @Get('/')
@@ -21,11 +28,11 @@ export class WelcomeController {
         : `${seconds}s`;
 
     return res.view('welcome', {
-      version: '0.1.0',
+      version: packageJson.version || '0.1.0',
       uptime,
       heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
       runtime: `Bun ${typeof Bun !== 'undefined' ? Bun.version : 'Node'}`,
-      depCount: '0',
+      environment: process.env.NODE_ENV || 'development',
     });
   }
 }

@@ -3,9 +3,9 @@ import { DocsLayout } from '../../components/DocsLayout.js';
 
 export default function DocsModels() {
   return (
-    <DocsLayout currentPath="/docs/models" title="🗄️ Active Record Models & ORM">
+    <DocsLayout currentPath="/docs/models" title="Active Record Models & ORM">
       <p style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem' }}>
-        ForgeTS provides a Laravel-style Active Record ORM powered by Kysely under the hood. Supports MySQL and upcoming MongoDB document stores seamlessly.
+        ForgeTS provides a Laravel-style Active Record ORM powered by Kysely under the hood. Supports MySQL relational and MongoDB document stores seamlessly.
       </p>
 
       <section style={{ marginBottom: '2.5rem' }}>

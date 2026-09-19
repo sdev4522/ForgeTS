@@ -24,7 +24,7 @@ describe('Security Access Control & Static Asset Scoping', () => {
 
   test('Forbidden path: /packages/forge/src/view/ViewEngine.ts must return 404', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/packages/forge/src/view/ViewEngine.ts')
+      new globalThis.Request('http://example.test/packages/forge/src/view/ViewEngine.ts')
     );
     expect(res.status).toBe(404);
     const body = await res.json();
@@ -33,28 +33,28 @@ describe('Security Access Control & Static Asset Scoping', () => {
 
   test('Forbidden path: /config/database.ts must return 404', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/config/database.ts')
+      new globalThis.Request('http://example.test/config/database.ts')
     );
     expect(res.status).toBe(404);
   });
 
   test('Forbidden path: /.env must return 404', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/.env')
+      new globalThis.Request('http://example.test/.env')
     );
     expect(res.status).toBe(404);
   });
 
   test('Forbidden path: /package.json must return 404', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/package.json')
+      new globalThis.Request('http://example.test/package.json')
     );
     expect(res.status).toBe(404);
   });
 
   test('Valid route: /todos must return 200 OK with expected JSON array', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/todos')
+      new globalThis.Request('http://example.test/todos')
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -63,7 +63,7 @@ describe('Security Access Control & Static Asset Scoping', () => {
 
   test('Valid SSR route: /todos/react must return 200 OK with HTML content', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/todos/react')
+      new globalThis.Request('http://example.test/todos/react')
     );
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -72,7 +72,7 @@ describe('Security Access Control & Static Asset Scoping', () => {
 
   test('Valid client hydration script: /resources/js/entry-client.tsx must return 200 OK JS', async () => {
     const res = await (app as any).handleRequest(
-      new globalThis.Request('http://localhost:3000/resources/js/entry-client.tsx')
+      new globalThis.Request('http://example.test/resources/js/entry-client.tsx')
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/javascript');

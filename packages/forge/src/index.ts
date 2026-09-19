@@ -58,3 +58,16 @@ export { config, initConfig, getConfigManager } from './config/ConfigManager.js'
 
 // ─── View ───
 export { ViewEngine } from './view/ViewEngine.js';
+
+// ─── Events ───
+export {
+  EventDispatcher,
+  events,
+  getEventDispatcher,
+  setEventDispatcher,
+  type EventConstructor,
+  type Listener,
+  type ListenerClass,
+  type ListenerFunction,
+  type EventListenerClass,
+} from './events/EventDispatcher.js';

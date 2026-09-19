@@ -29,6 +29,7 @@ import { ViewEngine } from '../view/ViewEngine.js';
 import { ReactEngine } from '../ssr/ReactEngine.js';
 import { getTimezone } from './time.js';
 import { verifyDatabaseConnectionOnBoot } from '../database/Connection.js';
+import { EventDispatcher, setEventDispatcher } from '../events/EventDispatcher.js';
 import type { HttpMethod } from '../routing/decorators.js';
 import type { MiddlewareClass } from '../http/Middleware.js';
 
@@ -42,7 +43,9 @@ export abstract class Provider {
 // ─── Application ───
 
 export class Application {
+  public static readonly VERSION = '0.1.0';
   readonly container: Container;
+  readonly events: EventDispatcher;
   private resolver: RouteResolver;
   private configManager: ConfigManager;
   private viewEngine: ViewEngine;
@@ -53,6 +56,8 @@ export class Application {
 
   constructor(private rootDir: string = process.cwd()) {
     this.container = new Container();
+    this.events = new EventDispatcher(this.container);
+    setEventDispatcher(this.events);
     this.resolver = new RouteResolver();
     this.viewEngine = new ViewEngine(rootDir);
     this.reactEngine = new ReactEngine(rootDir);
@@ -63,6 +68,8 @@ export class Application {
     // Bind the container and app itself into the container
     this.container.instance('app', this);
     this.container.instance(Container, this.container);
+    this.container.instance('events', this.events);
+    this.container.instance(EventDispatcher, this.events);
     this.container.instance(ViewEngine, this.viewEngine);
     this.container.instance(ReactEngine, this.reactEngine);
   }
@@ -162,7 +169,7 @@ export class Application {
 
     const routeCount = this.resolver.count;
     console.log('');
-    console.log(`  ⚡ ForgeTS v0.1.0`);
+    console.log(`  ForgeTS v${Application.VERSION}`);
     console.log(`  ├─ Server:  http://localhost:${server.port}`);
     console.log(`  ├─ Routes:  ${routeCount} registered`);
     console.log(`  ├─ Runtime: Bun ${Bun.version}`);
@@ -324,77 +331,82 @@ export class Application {
       }
 
       // 2. Create the framework Request
-      const req = new Request(rawRequest, resolved.params);
+      let req: Request | undefined;
+      try {
+        req = new Request(rawRequest, resolved.params);
 
-      // 3. Parse body for write methods (lazy — only if needed)
-      if (['POST', 'PUT', 'PATCH'].includes(method)) {
-        const contentType = rawRequest.headers.get('content-type') ?? '';
-        if (contentType.includes('application/json')) {
-          try {
-            const body = await rawRequest.json();
-            req._setBody(body);
-          } catch {
-            return new ForgeResponse()
-              .badRequest('Invalid JSON body')
-              .toNativeResponse();
-          }
-        } else if (contentType.includes('application/x-www-form-urlencoded')) {
-          try {
-            const text = await rawRequest.text();
-            const params = new URLSearchParams(text);
-            const bodyObj: Record<string, any> = {};
-            params.forEach((v, k) => (bodyObj[k] = v));
-            req._setBody(bodyObj);
-          } catch {
-            return new ForgeResponse()
-              .badRequest('Invalid form body')
-              .toNativeResponse();
+        // 3. Parse body for write methods (lazy — only if needed)
+        if (['POST', 'PUT', 'PATCH'].includes(method)) {
+          const contentType = rawRequest.headers.get('content-type') ?? '';
+          if (contentType.includes('application/json')) {
+            try {
+              const body = await rawRequest.json();
+              req._setBody(body);
+            } catch {
+              return new ForgeResponse()
+                .badRequest('Invalid JSON body')
+                .toNativeResponse();
+            }
+          } else if (contentType.includes('application/x-www-form-urlencoded')) {
+            try {
+              const text = await rawRequest.text();
+              const params = new URLSearchParams(text);
+              const bodyObj: Record<string, any> = {};
+              params.forEach((v, k) => (bodyObj[k] = v));
+              req._setBody(bodyObj);
+            } catch {
+              return new ForgeResponse()
+                .badRequest('Invalid form body')
+                .toNativeResponse();
+            }
           }
         }
+
+        // 4. Resolve the controller from the container
+        const { route } = resolved;
+        const controller = this.container.has(route.controllerClass)
+          ? this.container.resolve(route.controllerClass)
+          : new route.controllerClass();
+
+        // 5. Build the middleware pipeline and execute
+        const allMiddleware = [...this.globalMiddleware, ...route.middleware];
+
+        const finalHandler = async (_req: Request): Promise<ForgeResponse> => {
+          const handler = (controller as any)[route.handlerName];
+          if (typeof handler !== 'function') {
+            throw new Error(
+              `[ForgeTS] Handler '${String(route.handlerName)}' not found on ${route.controllerClass.name}`,
+            );
+          }
+
+          const response = new ForgeResponse(this.viewEngine, this.reactEngine);
+          if ((_req as any)._csrfToken) {
+            (response as any)._csrfToken = (_req as any)._csrfToken;
+          }
+          const result = await handler.call(controller, _req, response);
+
+          // If the handler returned a ForgeResponse, use it.
+          // If it returned a plain value, wrap it as JSON.
+          if (result instanceof ForgeResponse) {
+            return result;
+          }
+          if (result !== undefined) {
+            return new ForgeResponse().json(result);
+          }
+          return response;
+        };
+
+        const response = await executePipeline(
+          allMiddleware,
+          this.container,
+          req,
+          finalHandler,
+        );
+
+        return response.toNativeResponse();
+      } catch (error) {
+        return this.handleError(error, rawRequest, req);
       }
-
-      // 4. Resolve the controller from the container
-      const { route } = resolved;
-      const controller = this.container.has(route.controllerClass)
-        ? this.container.resolve(route.controllerClass)
-        : new route.controllerClass();
-
-      // 5. Build the middleware pipeline and execute
-      const allMiddleware = [...this.globalMiddleware, ...route.middleware];
-
-      const finalHandler = async (_req: Request): Promise<ForgeResponse> => {
-        const handler = (controller as any)[route.handlerName];
-        if (typeof handler !== 'function') {
-          throw new Error(
-            `[ForgeTS] Handler '${String(route.handlerName)}' not found on ${route.controllerClass.name}`,
-          );
-        }
-
-        const response = new ForgeResponse(this.viewEngine, this.reactEngine);
-        if ((_req as any)._csrfToken) {
-          (response as any)._csrfToken = (_req as any)._csrfToken;
-        }
-        const result = await handler.call(controller, _req, response);
-
-        // If the handler returned a ForgeResponse, use it.
-        // If it returned a plain value, wrap it as JSON.
-        if (result instanceof ForgeResponse) {
-          return result;
-        }
-        if (result !== undefined) {
-          return new ForgeResponse().json(result);
-        }
-        return response;
-      };
-
-      const response = await executePipeline(
-        allMiddleware,
-        this.container,
-        req,
-        finalHandler,
-      );
-
-      return response.toNativeResponse();
     } catch (error) {
       return this.handleError(error, rawRequest);
     }
@@ -404,7 +416,11 @@ export class Application {
    * Global error handler engine.
    * Converts known exceptions into structured HTTP responses or HTML debug pages.
    */
-  public handleError(error: unknown, rawRequest?: globalThis.Request): globalThis.Response {
+  public handleError(
+    error: unknown,
+    rawRequest?: globalThis.Request,
+    forgeReq?: Request,
+  ): globalThis.Response {
     // 1. Validation errors → 422
     if (error instanceof ValidationError || error instanceof ValidationException) {
       return new ForgeResponse()
@@ -449,7 +465,7 @@ export class Application {
 
       if (prefersHtml) {
         const html = isDebug
-          ? ErrorDisplayEngine.renderHtml(new HttpException(503, dbMessage), rawRequest?.url)
+          ? ErrorDisplayEngine.renderHtml(new HttpException(503, dbMessage), rawRequest, forgeReq)
           : ErrorDisplayEngine.renderProductionHtml(503, dbMessage);
         return new ForgeResponse().status(503).html(html).toNativeResponse();
       }
@@ -471,7 +487,7 @@ export class Application {
 
       if (prefersHtml) {
         const html = isDebug
-          ? ErrorDisplayEngine.renderHtml(error, rawRequest?.url)
+          ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
           : ErrorDisplayEngine.renderProductionHtml(error.statusCode, error.message);
         return new ForgeResponse()
           .status(error.statusCode)
@@ -510,7 +526,7 @@ export class Application {
       }
 
       // Render rich HTML debug error page for browser requests
-      const debugHtml = ErrorDisplayEngine.renderHtml(error, rawRequest?.url);
+      const debugHtml = ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq);
       return new ForgeResponse()
         .status(500)
         .html(debugHtml)

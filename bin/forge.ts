@@ -21,22 +21,22 @@ function ensureDir(dirPath: string) {
 
 function createFile(filePath: string, content: string, description: string) {
   if (existsSync(filePath)) {
-    console.error(`❌ [ForgeTS CLI] File already exists: ${filePath}`);
+    console.error(`[ForgeTS CLI] Error: File already exists: ${filePath}`);
     process.exit(1);
   }
   ensureDir(join(filePath, '..'));
   writeFileSync(filePath, content.trimStart(), 'utf-8');
-  console.log(`✅ [ForgeTS CLI] Created ${description}: ${filePath.replace(ROOT_DIR + '/', '')}`);
+  console.log(`[ForgeTS CLI] Created ${description}: ${filePath.replace(ROOT_DIR + '/', '')}`);
 }
 
 function createFileSafe(filePath: string, content: string, description: string): boolean {
   if (existsSync(filePath)) {
-    console.warn(`⚠️  [ForgeTS CLI] ${description} already exists: ${filePath.replace(ROOT_DIR + '/', '')} (skipping)`);
+    console.warn(`[ForgeTS CLI] Warning: ${description} already exists: ${filePath.replace(ROOT_DIR + '/', '')} (skipping)`);
     return false;
   }
   ensureDir(join(filePath, '..'));
   writeFileSync(filePath, content.trimStart(), 'utf-8');
-  console.log(`✅ [ForgeTS CLI] Created ${description}: ${filePath.replace(ROOT_DIR + '/', '')}`);
+  console.log(`[ForgeTS CLI] Created ${description}: ${filePath.replace(ROOT_DIR + '/', '')}`);
   return true;
 }
 
@@ -107,13 +107,13 @@ function registerWebRouteController(controllerName: string) {
   }
 
   writeFileSync(webRoutesPath, content, 'utf-8');
-  console.log(`✅ [ForgeTS CLI] Registered ${controllerName} in routes/web.ts`);
+  console.log(`[ForgeTS CLI] Registered ${controllerName} in routes/web.ts`);
 }
 
 async function runCommand() {
   switch (command) {
     case 'serve': {
-      console.log('⚡ Starting ForgeTS development server...');
+      console.log('[ForgeTS] Starting development server...');
       const proc = Bun.spawn(['bun', '--watch', 'run', 'bin/serve.ts'], {
         stdout: 'inherit',
         stderr: 'inherit',
@@ -124,7 +124,7 @@ async function runCommand() {
 
     case 'make:controller': {
       if (!targetName) {
-        console.error('❌ Usage: forge make:controller <ControllerName>');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:controller <ControllerName>');
         process.exit(1);
       }
       const className = toPascalCase(targetName).endsWith('Controller')
@@ -171,7 +171,7 @@ export class ${className} {
 
     case 'make:model': {
       if (!targetName) {
-        console.error('❌ Usage: forge make:model <ModelName> [--migration]');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:model <ModelName> [--migration]');
         process.exit(1);
       }
       const className = toPascalCase(targetName);
@@ -216,7 +216,7 @@ export async function down(db: Kysely<any>): Promise<void> {
 
     case 'make:service': {
       if (!targetName) {
-        console.error('❌ Usage: forge make:service <ServiceName>');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:service <ServiceName>');
         process.exit(1);
       }
       const className = toPascalCase(targetName).endsWith('Service')
@@ -239,7 +239,7 @@ export class ${className} {
 
     case 'make:middleware': {
       if (!targetName) {
-        console.error('❌ Usage: forge make:middleware <MiddlewareName>');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:middleware <MiddlewareName>');
         process.exit(1);
       }
       const className = toPascalCase(targetName).endsWith('Middleware')
@@ -264,7 +264,7 @@ export class ${className} implements Middleware {
 
     case 'make:migration': {
       if (!targetName) {
-        console.error('❌ Usage: forge make:migration <migration_name>');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:migration <migration_name>');
         process.exit(1);
       }
       const snakeName = toSnakeCase(targetName);
@@ -288,7 +288,7 @@ export async function down(db: Kysely<any>): Promise<void> {
 
     case 'make:page': {
       if (!targetName) {
-        console.error('❌ Usage: forge make:page <PageName> [--crud]');
+        console.error('[ForgeTS CLI] Error: Usage: forge make:page <PageName> [--crud]');
         process.exit(1);
       }
 
@@ -320,7 +320,7 @@ export class ${singularPascal} extends Model {
         const foundMig = existingMigFiles.find((f) => f.endsWith(targetMigSuffix));
 
         if (foundMig) {
-          console.warn(`⚠️  [ForgeTS CLI] Migration already exists: database/migrations/${foundMig} (skipping)`);
+          console.warn(`[ForgeTS CLI] Warning: Migration already exists: database/migrations/${foundMig} (skipping)`);
         } else {
           const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
           const migName = `${timestamp}_create_${pluralSnake}_table.ts`;
@@ -446,7 +446,7 @@ export default function ${singularPascal}Index({ items = [], csrf_token = '' }: 
   return (
     <div style={{ maxWidth: '800px', margin: '40px auto', fontFamily: 'sans-serif', color: '#f8fafc', backgroundColor: '#090d16', padding: '2rem', borderRadius: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-        <h2>⚡ ${pluralPascal}</h2>
+        <h2>${pluralPascal}</h2>
         <a href="/${pluralSnake}/create" style={{ background: '#6366f1', color: '#fff', padding: '0.5rem 1rem', borderRadius: '0.5rem', textDecoration: 'none', fontWeight: 600 }}>+ New ${singularPascal}</a>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -591,7 +591,7 @@ export default function ${singularPascal}Page() {
       const app = appModule.default;
       const routes = app.getRoutes();
 
-      console.log('\n  ⚡ Registered Routes');
+      console.log('\n  Registered Routes');
       console.log('  ┌────────┬───────────────────────────────┬──────────────────────────────┐');
       console.log('  │ Method │ Path                          │ Handler                      │');
       console.log('  ├────────┼───────────────────────────────┼──────────────────────────────┤');
@@ -619,7 +619,7 @@ export default function ${singularPascal}Page() {
           } catch {}
         }
       }
-      console.log('✅ [ForgeTS CLI] Application cache cleared successfully.');
+      console.log('[ForgeTS CLI] Application cache cleared successfully.');
       break;
     }
 
@@ -629,7 +629,7 @@ export default function ${singularPascal}Page() {
       if (existsSync(configCache)) {
         unlinkSync(configCache);
       }
-      console.log('✅ [ForgeTS CLI] Configuration cache cleared successfully.');
+      console.log('[ForgeTS CLI] Configuration cache cleared successfully.');
       break;
     }
 
@@ -640,13 +640,13 @@ export default function ${singularPascal}Page() {
           rmSync(frameworkDir, { recursive: true, force: true });
         } catch {}
       }
-      console.log('✅ [ForgeTS CLI] All caches (config, routes, views) cleared successfully.');
+      console.log('[ForgeTS CLI] All caches (config, routes, views) cleared successfully.');
       break;
     }
 
     default: {
       console.log(`
-⚡ ForgeTS CLI Scaffolding Tool v0.1.0
+ForgeTS CLI Scaffolding Tool v0.1.0
 
 Available Commands:
   forge serve                            Start dev server with Bun hot reload
@@ -667,6 +667,6 @@ Available Commands:
 }
 
 runCommand().catch((err) => {
-  console.error('❌ [ForgeTS CLI] Error:', err);
+  console.error('[ForgeTS CLI] Error:', err);
   process.exit(1);
 });

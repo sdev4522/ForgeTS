@@ -9,11 +9,11 @@ import { getConfigManager } from '../config/ConfigManager.js';
 export function getTimezone(): string {
   try {
     const cfg = getConfigManager();
-    const tz = cfg?.get<string>('app.timezone', 'Asia/Kolkata') ?? 'Asia/Kolkata';
-    return tz === 'IST' ? 'Asia/Kolkata' : tz;
+    const tz = cfg?.get<string>('app.timezone', 'UTC') ?? 'UTC';
+    return tz;
   } catch {
-    const envTz = process.env.APP_TIMEZONE ?? process.env.TZ ?? 'Asia/Kolkata';
-    return envTz === 'IST' ? 'Asia/Kolkata' : envTz;
+    const envTz = process.env.APP_TIMEZONE ?? process.env.TZ ?? 'UTC';
+    return envTz;
   }
 }
 

@@ -3,7 +3,7 @@ import { DocsLayout } from '../../components/DocsLayout.js';
 
 export default function DocsViews() {
   return (
-    <DocsLayout currentPath="/docs/views" title="🎨 Views (HTML & React SSR)">
+    <DocsLayout currentPath="/docs/views" title="Views (HTML & React SSR)">
       <p style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem' }}>
         ForgeTS supports two first-class view engines out of the box: built-in HTML View Engine and React SSR.
       </p>
