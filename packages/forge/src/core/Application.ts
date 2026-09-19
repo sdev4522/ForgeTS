@@ -21,7 +21,7 @@ import { Router, type RegisteredRoute } from '../routing/Router.js';
 import { RouteResolver, type ResolvedRoute } from '../routing/RouteResolver.js';
 import { Request, ValidationException } from '../http/Request.js';
 import { ValidationError } from '../http/Validator.js';
-import { ForgeResponse } from '../http/Response.js';
+import { ForgeResponse, normalizeHttpStatus, isValidHttpStatus } from '../http/Response.js';
 import { ErrorDisplayEngine } from '../http/ErrorDisplayEngine.js';
 import { executePipeline } from '../http/Pipeline.js';
 import { initConfig, getConfigManager, type ConfigManager } from '../config/ConfigManager.js';
@@ -456,9 +456,17 @@ export class Application {
           const result = await handler.call(controller, _req, response);
 
           // If the handler returned a ForgeResponse, use it.
+          // If it returned a native Response, wrap and adapt it.
           // If it returned a plain value, wrap it as JSON.
           if (result instanceof ForgeResponse) {
             return result;
+          }
+          if (result instanceof globalThis.Response) {
+            const forgeRes = new ForgeResponse(this.viewEngine, this.reactEngine);
+            forgeRes.status(result.status);
+            result.headers.forEach((val, key) => forgeRes.header(key, val));
+            (forgeRes as any)._body = result.body;
+            return forgeRes;
           }
           if (result !== undefined) {
             return new ForgeResponse().json(result);
@@ -487,6 +495,32 @@ export class Application {
    * Converts known exceptions into structured HTTP responses or HTML debug pages.
    */
   public handleError(
+    error: unknown,
+    rawRequest?: globalThis.Request,
+    forgeReq?: Request,
+  ): globalThis.Response {
+    try {
+      return this.doHandleError(error, rawRequest, forgeReq);
+    } catch (criticalHandlerError) {
+      console.error(
+        '[ForgeTS Critical Error] Error handler threw an unhandled exception:',
+        criticalHandlerError,
+      );
+      console.error('[ForgeTS Critical Error] Original error was:', error);
+      return new globalThis.Response(
+        JSON.stringify({
+          message: 'Internal Server Error',
+          statusCode: 500,
+        }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        },
+      );
+    }
+  }
+
+  private doHandleError(
     error: unknown,
     rawRequest?: globalThis.Request,
     forgeReq?: Request,
@@ -577,32 +611,61 @@ export class Application {
         .toNativeResponse();
     }
 
-    // 2. Custom HttpException → status code
+    // 3. Custom HttpException → status code
     if (error instanceof HttpException) {
-      if (error.statusCode >= 500) {
+      const statusCode = normalizeHttpStatus(error.statusCode, 500);
+      if (statusCode >= 500) {
         console.error('[ForgeTS] Unhandled error:', error);
       }
 
       if (prefersHtml) {
         const html = isDebug
           ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
-          : ErrorDisplayEngine.renderProductionHtml(error.statusCode, error.message);
+          : ErrorDisplayEngine.renderProductionHtml(statusCode, error.message);
         return new ForgeResponse()
-          .status(error.statusCode)
+          .status(statusCode)
           .html(html)
           .toNativeResponse();
       }
 
       return new ForgeResponse()
-        .status(error.statusCode)
+        .status(statusCode)
         .json({
           error: error.message,
-          statusCode: error.statusCode,
+          statusCode,
         })
         .toNativeResponse();
     }
 
-    // 3. System / Unknown Exception → 500
+    // 4. Any Error with explicit valid statusCode or status property
+    const rawStatusCode = (error as any)?.statusCode ?? (error as any)?.status;
+    if (rawStatusCode !== undefined && isValidHttpStatus(rawStatusCode)) {
+      const statusCode = rawStatusCode;
+      if (statusCode >= 500) {
+        console.error('[ForgeTS] Unhandled error:', error);
+      }
+
+      const msg = (error as any)?.message || 'An error occurred';
+      if (prefersHtml) {
+        const html = isDebug
+          ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
+          : ErrorDisplayEngine.renderProductionHtml(statusCode, msg);
+        return new ForgeResponse()
+          .status(statusCode)
+          .html(html)
+          .toNativeResponse();
+      }
+
+      return new ForgeResponse()
+        .status(statusCode)
+        .json({
+          error: msg,
+          statusCode,
+        })
+        .toNativeResponse();
+    }
+
+    // 5. System / Unknown Exception → 500
     console.error('[ForgeTS] Unhandled error:', error);
 
     if (isDebug) {

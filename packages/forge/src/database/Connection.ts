@@ -32,6 +32,7 @@ export function getDatabaseConnection(): Kysely<any> {
       database: connConfig.database,
       user: connConfig.username ?? connConfig.user ?? 'root',
       password: connConfig.password ?? '',
+      timezone: connConfig.timezone ?? 'Z',
       connectionLimit: 10,
       connectTimeout: 2000,
     });

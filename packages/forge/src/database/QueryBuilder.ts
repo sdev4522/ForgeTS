@@ -7,6 +7,7 @@
 import type { Model } from './Model.js';
 import { getDatabaseConnection, getMongoDriver } from './Connection.js';
 import { MODEL_RELATIONS, type RelationDefinition } from './decorators.js';
+import { serializeDatabaseValue } from './serializer.js';
 
 export class QueryBuilder<M extends typeof Model> {
   private sqlQuery: any = null;
@@ -34,29 +35,52 @@ export class QueryBuilder<M extends typeof Model> {
   where(column: string, op: string, value: unknown): this;
   where(column: string, opOrValue: unknown, value?: unknown): this {
     if (this.isMongo()) {
+      const driver = 'mongodb';
+      const actualValue = value === undefined ? opOrValue : value;
+      const serializedValue = serializeDatabaseValue(actualValue, driver);
+
       if (value === undefined) {
-        this.mongoWhere[column] = opOrValue;
+        this.mongoWhere[column] = serializedValue;
       } else if (opOrValue === '=') {
-        this.mongoWhere[column] = value;
+        this.mongoWhere[column] = serializedValue;
       } else if (opOrValue === '>') {
-        this.mongoWhere[column] = { $gt: value };
+        this.mongoWhere[column] = { $gt: serializedValue };
       } else if (opOrValue === '>=') {
-        this.mongoWhere[column] = { $gte: value };
+        this.mongoWhere[column] = { $gte: serializedValue };
       } else if (opOrValue === '<') {
-        this.mongoWhere[column] = { $lt: value };
+        this.mongoWhere[column] = { $lt: serializedValue };
       } else if (opOrValue === '<=') {
-        this.mongoWhere[column] = { $lte: value };
+        this.mongoWhere[column] = { $lte: serializedValue };
       } else if (opOrValue === '!=') {
-        this.mongoWhere[column] = { $ne: value };
+        this.mongoWhere[column] = { $ne: serializedValue };
       } else {
-        this.mongoWhere[column] = value;
+        this.mongoWhere[column] = serializedValue;
       }
     } else {
+      const driver = (this.modelClass as any).connection || 'mysql';
       if (value === undefined) {
-        this.sqlQuery = this.sqlQuery.where(column, '=', opOrValue);
+        const serialized = serializeDatabaseValue(opOrValue, driver);
+        this.sqlQuery = this.sqlQuery.where(column, '=', serialized);
       } else {
-        this.sqlQuery = this.sqlQuery.where(column, opOrValue as any, value);
+        const serialized = serializeDatabaseValue(value, driver);
+        this.sqlQuery = this.sqlQuery.where(column, opOrValue as any, serialized);
       }
+    }
+    return this;
+  }
+
+  whereBetween(column: string, range: [unknown, unknown]): this {
+    if (this.isMongo()) {
+      const driver = 'mongodb';
+      this.mongoWhere[column] = {
+        $gte: serializeDatabaseValue(range[0], driver),
+        $lte: serializeDatabaseValue(range[1], driver),
+      };
+    } else {
+      const driver = (this.modelClass as any).connection || 'mysql';
+      const min = serializeDatabaseValue(range[0], driver);
+      const max = serializeDatabaseValue(range[1], driver);
+      this.sqlQuery = this.sqlQuery.where(column, '>=', min).where(column, '<=', max);
     }
     return this;
   }

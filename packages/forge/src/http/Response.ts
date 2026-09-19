@@ -19,6 +19,41 @@ export interface CookieOptions {
   sameSite?: 'Strict' | 'Lax' | 'None';
 }
 
+/**
+ * Validate whether a given value is a valid HTTP status code according to the Web / Fetch specification.
+ * Valid statuses are 101 or within the range [200, 599].
+ */
+export function isValidHttpStatus(status: unknown): status is number {
+  return (
+    typeof status === 'number' &&
+    Number.isInteger(status) &&
+    (status === 101 || (status >= 200 && status <= 599))
+  );
+}
+
+/**
+ * Normalizes any arbitrary status value into a guaranteed valid HTTP status code.
+ * Rejects 0, NaN, null, undefined, negative numbers, non-numeric strings, and out-of-range values.
+ * Guaranteed to return a valid HTTP status in [200, 599] or 101.
+ */
+export function normalizeHttpStatus(status: unknown, defaultStatus: number = 200): number {
+  const fallback = isValidHttpStatus(defaultStatus) ? defaultStatus : 200;
+
+  if (typeof status === 'number') {
+    return isValidHttpStatus(status) ? status : fallback;
+  }
+
+  if (typeof status === 'string') {
+    const trimmed = status.trim();
+    if (/^\d+$/.test(trimmed)) {
+      const parsed = parseInt(trimmed, 10);
+      return isValidHttpStatus(parsed) ? parsed : fallback;
+    }
+  }
+
+  return fallback;
+}
+
 export class ForgeResponse {
   private _status: number = 200;
   private _headers: Record<string, string> = {};
@@ -36,7 +71,7 @@ export class ForgeResponse {
 
   /** Set the HTTP status code. Chainable. */
   status(code: number): this {
-    this._status = code;
+    this._status = normalizeHttpStatus(code, 200);
     return this;
   }
 
@@ -52,7 +87,7 @@ export class ForgeResponse {
 
   /** Send a JSON response. */
   json(data: unknown, status?: number): this {
-    if (status !== undefined) this._status = status;
+    if (status !== undefined) this._status = normalizeHttpStatus(status, this._status);
     this._headers['content-type'] = 'application/json; charset=utf-8';
     this._body = JSON.stringify(data);
     return this;
@@ -60,7 +95,7 @@ export class ForgeResponse {
 
   /** Send a plain text response. */
   text(content: string, status?: number): this {
-    if (status !== undefined) this._status = status;
+    if (status !== undefined) this._status = normalizeHttpStatus(status, this._status);
     this._headers['content-type'] = 'text/plain; charset=utf-8';
     this._body = content;
     return this;
@@ -68,7 +103,7 @@ export class ForgeResponse {
 
   /** Send an HTML response. */
   html(content: string, status?: number): this {
-    if (status !== undefined) this._status = status;
+    if (status !== undefined) this._status = normalizeHttpStatus(status, this._status);
     this._headers['content-type'] = 'text/html; charset=utf-8';
     this._body = content;
     return this;
@@ -238,7 +273,11 @@ export class ForgeResponse {
 
   /** Redirect to a URL. Default status 302 (temporary). */
   redirect(url: string, status: number = 302): this {
-    this._status = status;
+    const validRedirectStatus =
+      typeof status === 'number' && Number.isInteger(status) && status >= 300 && status <= 399
+        ? status
+        : 302;
+    this._status = validRedirectStatus;
     this._headers['location'] = url;
     this._body = null;
     return this;
@@ -274,6 +313,7 @@ export class ForgeResponse {
   /**
    * Convert to a native Web API Response object.
    * This is called internally by the framework to send the response.
+   * Guaranteed to always return a valid HTTP status (101 or 200..599).
    * @internal
    */
   toNativeResponse(): globalThis.Response {
@@ -284,8 +324,11 @@ export class ForgeResponse {
       headers.append('set-cookie', cookie);
     }
 
+    const defaultStatus = this._headers['location'] ? 302 : 200;
+    const finalStatus = normalizeHttpStatus(this._status, defaultStatus);
+
     return new globalThis.Response(this._body, {
-      status: this._status,
+      status: finalStatus,
       headers,
     });
   }

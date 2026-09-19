@@ -13,12 +13,21 @@ export default function UserPage({ csrf_token, user }: PageProps) {
 
             <form action="/user" method="post">
                 <input type="hidden" name="_token" value={csrf_token} />
-                <input type="text" placeholder='name' name="name" />
-                <input type="text" placeholder='email' name="email" />
-                <input type="password" placeholder='password' name="password" />
+                <input type="text" placeholder='name' name="name" /> <br /><br />
+                <input type="text" placeholder='email' name="email" /> <br /><br />
+                <input type="password" placeholder='password' name="password" /> <br /><br />
                 <button type="submit">Submit</button>
             </form>
-
+            <br />
+            {user.map((user: any) => (
+                <div key={user.id}>
+                    <a href={`/user/${user.id}`}>{user.name}</a>
+                    <form action={`/user/${user.id}`} method="delete">
+                        <input type="hidden" name="_token" value={csrf_token} />
+                        <button type="submit">Delete</button>
+                    </form>
+                </div>
+            ))}
         </div>
     );
 }

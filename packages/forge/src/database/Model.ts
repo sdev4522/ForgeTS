@@ -7,6 +7,7 @@
 
 import { getDatabaseConnection, getMongoDriver } from './Connection.js';
 import { QueryBuilder } from './QueryBuilder.js';
+import { serializeModelAttributes, formatMysqlDateTime, serializeDatabaseValue } from './serializer.js';
 
 export abstract class Model {
   /** Database table or collection name */
@@ -149,6 +150,13 @@ export abstract class Model {
   }
 
   /**
+   * Alias for update() to support ActiveRecord / Laravel conventions.
+   */
+  async updateAttributes(attributes: Record<string, any>): Promise<this> {
+    return this.update(attributes);
+  }
+
+  /**
    * Instantiate and hydrate a model instance from a raw database row (bypassing mass-assignment).
    */
   static hydrate<T extends Model>(this: new (...args: any[]) => T, row: Record<string, any>): T {
@@ -188,6 +196,9 @@ export abstract class Model {
 
   static async create<T extends typeof Model>(this: T, data: Record<string, any>): Promise<InstanceType<T>> {
     const instance = new (this as any)(data);
+    // Explicitly provided created_at / updated_at overrides in create data take precedence
+    if (data.created_at !== undefined) instance._attributes.created_at = data.created_at;
+    if (data.updated_at !== undefined) instance._attributes.updated_at = data.updated_at;
     await instance.save();
     return instance;
   }
@@ -203,18 +214,38 @@ export abstract class Model {
     const pk = ctor.getPrimaryKey();
 
     const data: Record<string, any> = { ...this.toJSON() };
+    const isMongo = ctor.connection === 'mongodb';
 
     if (ctor.timestamps) {
-      const now = new Date().toISOString();
-      if (!data['created_at']) data['created_at'] = now;
-      data['updated_at'] = now;
-      this._attributes['updated_at'] = now;
-      if (!this._attributes['created_at']) this._attributes['created_at'] = now;
+      if (isMongo) {
+        const nowVal = new Date().toISOString();
+        if (!data['created_at']) data['created_at'] = nowVal;
+        data['updated_at'] = nowVal;
+        this._attributes['updated_at'] = nowVal;
+        if (!this._attributes['created_at']) this._attributes['created_at'] = nowVal;
+      } else {
+        const formattedNow = formatMysqlDateTime(new Date());
+        if (!data['created_at']) data['created_at'] = formattedNow;
+        data['updated_at'] = formattedNow;
+        if (!this._attributes['created_at']) this._attributes['created_at'] = data['created_at'];
+        this._attributes['updated_at'] = data['updated_at'];
+      }
+    }
+
+    if (!isMongo) {
+      if (typeof data['created_at'] === 'string' && data['created_at'].includes('T')) {
+        data['created_at'] = serializeDatabaseValue(data['created_at'], 'mysql');
+        this._attributes['created_at'] = data['created_at'];
+      }
+      if (typeof data['updated_at'] === 'string' && data['updated_at'].includes('T')) {
+        data['updated_at'] = serializeDatabaseValue(data['updated_at'], 'mysql');
+        this._attributes['updated_at'] = data['updated_at'];
+      }
     }
 
     const currentPkValue = this._attributes[pk];
 
-    if (ctor.connection === 'mongodb') {
+    if (isMongo) {
       const mongo = getMongoDriver();
       if (currentPkValue !== undefined && currentPkValue !== null) {
         const updated = await mongo.update(table, currentPkValue, data);
@@ -225,17 +256,20 @@ export abstract class Model {
       }
     } else {
       const db = getDatabaseConnection();
+      const driver = ctor.connection || 'mysql';
+      const serializedData = serializeModelAttributes(data, driver);
+
       if (currentPkValue !== undefined && currentPkValue !== null) {
         // UPDATE
         await db
           .updateTable(table)
-          .set(data)
+          .set(serializedData)
           .where(pk, '=', currentPkValue)
           .execute();
       } else {
         // INSERT
-        delete data[pk];
-        const result = await db.insertInto(table).values(data).executeTakeFirst();
+        delete serializedData[pk];
+        const result = await db.insertInto(table).values(serializedData).executeTakeFirst();
         if (result && result.insertId !== undefined) {
           const insertedId = Number(result.insertId);
           this._attributes[pk] = insertedId;
