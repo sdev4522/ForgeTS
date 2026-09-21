@@ -140,7 +140,7 @@ export class ForgeResponse {
     template: string,
     data: Record<string, unknown> = {},
     status?: number,
-  ): Promise<this> & { meta: (metadata: Record<string, string>) => Promise<this> } {
+  ): Promise<ForgeResponse> & { meta: (metadata: Record<string, string>) => Promise<ForgeResponse> } {
     const promise = (async () => {
       if (!this._viewEngine) {
         throw new Error(

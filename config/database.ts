@@ -23,13 +23,5 @@ export default defineConfig({
       uri: env('MONGO_URI', 'mongodb://127.0.0.1:27017'),
       database: env('MONGO_DB_NAME', 'forgets'),
     },
-    postgres: {
-      driver: 'postgres' as const,
-      host: env('DB_HOST', '127.0.0.1'),
-      port: env.number('DB_PORT', 5432),
-      database: env('DB_DATABASE', 'forgets'),
-      username: env('DB_USERNAME', 'root'),
-      password: env('DB_PASSWORD', ''),
-    },
   },
 });

@@ -52,6 +52,35 @@
 - [Completed] HTTP status normalization (`normalizeHttpStatus`, `isValidHttpStatus`).
 - [Completed] Active Record & View Data Serialization Boundary (`serializeViewData()`, Model Proxy traps `ownKeys`, `has`, `getOwnPropertyDescriptor`).
 
+### v0.8 — Production Hardening & Static Analysis Pass
+- [Completed] Full TypeScript strict static analysis pass (`tsc -p tsconfig.json --noEmit` passing with 0 errors across 100% of the codebase).
+- [Completed] Fixed Stage 3 decorator metadata context unguarded accesses across `@Column`, `@HasMany`, `@BelongsTo`, `@Injectable`, and `@Controller`.
+- [Completed] Replaced invalid ambient `@Column() declare` field decorators with standard typed class fields, preserving TC39 Stage 3 `Symbol.metadata` registration.
+- [Completed] Cleaned application layer: transformed `AboutController` into a clean presentation controller, removed fake fallback credentials in `UserController.ts`, and updated `welcome.tsx` reference app link and code window to `UserController`.
+- [Completed] Removed dead `postgres` configuration block in `config/database.ts`.
+- [Completed] Fixed CLI migration scaffolding templates in `bin/forge.ts` to use SQL `datetime` instead of SQLite `'text'`.
+- [Completed] Hardened `ErrorDisplayEngine.renderJson` facade for structured API error diagnostics.
+- [Completed] Bumped framework version to `0.8.0` in `package.json`, `Application.ts`, and `bin/forge.ts`.
+- [Completed] Verified entire test suite: 150 passed across 21 test files with 100% passing tests.
+- [Completed] Verified production client and SSR bundling (`bun run build`) and production server boot (`NODE_ENV=production bun run bin/serve.ts`).
+
+### v0.8+ — First-Class Error Infrastructure & Diagnostics Subsystem
+- [Completed] Designed and implemented modular error architecture (`packages/forge/src/errors/`):
+  - `ForgeError`: Base exception class with HTTP status code, machine-readable error codes, optional structured details, and cause chaining.
+  - Complete framework exception hierarchy: `HttpError`, `BadRequestException`, `UnauthorizedException`, `ForbiddenException`, `NotFoundException`, `MethodNotAllowedException`, `UnprocessableEntityException`, `InternalServerErrorException`, `ServiceUnavailableException`, `ValidationError`, `RoutingError`, `RouteNotFoundException`, `MethodNotAllowedError`, `ContainerError`, `BindingResolutionException`, `CircularDependencyException`, `DatabaseError`, `DatabaseConnectionException`, `QueryException`, `ModelNotFoundException`, `ViewError`, `ViewNotFoundException`, `ViewRenderException`, `ConfigurationError`, `AuthenticationError`, `AuthorizationError`.
+  - `Redactor`: Multi-layer credential and secret redaction engine protecting process.env secrets, database connection URIs, sensitive query parameters, and authorization headers without mutating original Error objects or request payloads.
+  - `SourceFrameReader`: Robust stack trace parser (Bun, V8, Node, JSC) with categorization (App vs Framework vs Vendor) and surrounding source code snippet extraction with line numbering, error line highlighting, and caret markers.
+  - `ErrorNormalizer`: Converts raw throws, primitives, and compiler diagnostics into normalized framework error representations.
+  - `ContextCollector`: Collects request metadata, route information, environment details, and generates deterministic Error IDs (`err_<12-hex>`).
+  - `ContentNegotiator`: Centralized content negotiation for browser HTML navigation vs API JSON consumers.
+  - `HtmlErrorRenderer`: Dark-mode Ignition-style development HTML debugging interface and zero-leak production error page.
+  - `JsonErrorRenderer`: Structured development JSON payload and zero-leak production JSON payload.
+  - `FallbackRenderer`: Ultra-resilient fail-safe renderer for failure-of-failure recovery against malicious errors with throwing getters or circular structures.
+- [Completed] Refactored `ErrorDisplayEngine` into a backward-compatible facade delegating to the new modular error subsystem.
+- [Completed] Integrated error normalization and context collection into `Application.handleError()`, `Application.handleRequest()`, and emergency bootstrap server (`bin/serve.ts`).
+- [Completed] Created comprehensive unit test suite (`tests/unit/ErrorInfrastructure.test.ts`) validating all 22 required failure scenarios, status codes, and security contracts.
+- [Completed] Authored dedicated architectural guide `Docs/ERROR_HANDLING.md` and updated root `README.md`.
+
 ---
 
 ## 2. Documentation Synchronization (Current Task)

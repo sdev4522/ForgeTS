@@ -106,9 +106,9 @@ describe('serializeViewData HTTP / SSR Boundary Utility', () => {
   test('4. Preserves primitives, null, and undefined untouched', () => {
     expect(serializeViewData(null)).toBeNull();
     expect(serializeViewData(undefined)).toBeUndefined();
-    expect(serializeViewData('test')).toBe('test');
-    expect(serializeViewData(123)).toBe(123);
-    expect(serializeViewData(true)).toBe(true);
+    expect(serializeViewData<string>('test')).toBe('test');
+    expect(serializeViewData<number>(123)).toBe(123);
+    expect(serializeViewData<boolean>(true)).toBe(true);
   });
 });
 

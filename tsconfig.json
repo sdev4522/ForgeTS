@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -52,7 +54,7 @@
       "@/*": ["./resources/js/*"]
     },
     "baseUrl": ".",
-    "types": ["bun-types"]
+    "types": ["bun-types", "vite/client"]
   },
   "include": [
     "app/**/*",

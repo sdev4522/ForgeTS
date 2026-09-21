@@ -124,9 +124,6 @@ export default function UserPage({ csrf_token = '', userData = [] }: UserPagePro
 
   // Client-side interactive Delete
   const handleDelete = async (id: number, name: string) => {
-    if (typeof window !== 'undefined' && !window.confirm(`Are you sure you want to delete "${name}"?`)) {
-      return;
-    }
 
     setLoading(true);
     try {

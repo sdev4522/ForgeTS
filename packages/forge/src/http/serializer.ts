@@ -17,7 +17,7 @@
  */
 export function serializeViewData<T = any>(value: unknown): T {
   if (value === null || value === undefined) {
-    return value;
+    return value as unknown as T;
   }
 
   // If value provides a custom toJSON method (e.g. Model, ForgeDate), unwrap it first
@@ -34,7 +34,7 @@ export function serializeViewData<T = any>(value: unknown): T {
   if (typeof value === 'object') {
     // Non-plain objects that shouldn't be traversed
     if (value instanceof RegExp) {
-      return value;
+      return value as unknown as T;
     }
 
     const result: Record<string, any> = {};
@@ -44,5 +44,5 @@ export function serializeViewData<T = any>(value: unknown): T {
     return result as T;
   }
 
-  return value;
+  return value as unknown as T;
 }

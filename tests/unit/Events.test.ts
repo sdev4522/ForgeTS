@@ -220,9 +220,9 @@ describe('ForgeTS Events Subsystem', () => {
   test('9. Batch listener registration and forget: listen array and clear specific event listeners', async () => {
     const list: number[] = [];
     dispatcher.listen(SecondarySampleEvent, [
-      () => list.push(1),
-      () => list.push(2),
-      () => list.push(3),
+      () => { list.push(1); },
+      () => { list.push(2); },
+      () => { list.push(3); },
     ]);
 
     expect(dispatcher.getListeners(SecondarySampleEvent)).toHaveLength(3);
@@ -245,7 +245,7 @@ describe('ForgeTS Events Subsystem', () => {
     expect(app.container.has('events')).toBe(true);
     expect(app.container.has(EventDispatcher)).toBe(true);
     expect(app.container.resolve(EventDispatcher)).toBe(app.events);
-    expect(app.container.resolve('events')).toBe(app.events);
+    expect(app.container.resolve<EventDispatcher>('events')).toBe(app.events);
 
     // 3. Global events facade delegates to active application dispatcher
     let facadeTriggered = false;

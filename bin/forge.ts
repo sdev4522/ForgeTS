@@ -234,8 +234,8 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('${tableName}')
     .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
-    .addColumn('created_at', 'text')
-    .addColumn('updated_at', 'text')
+    .addColumn('created_at', 'datetime')
+    .addColumn('updated_at', 'datetime')
     .execute();
 }
 
@@ -367,7 +367,8 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
     .addColumn('title', 'text', (col) => col.notNull())
     .addColumn('content', 'text')
-    .addColumn('created_at', 'text')
+    .addColumn('created_at', 'datetime')
+    .addColumn('updated_at', 'datetime')
     .execute();
 }
 
@@ -681,7 +682,7 @@ export default function ${singularPascal}Page() {
 
     default: {
       console.log(`
-ForgeTS CLI Scaffolding Tool v0.1.0
+ForgeTS CLI Scaffolding Tool v0.8.0
 
 Available Commands:
   forge serve                            Start dev server with Bun hot reload

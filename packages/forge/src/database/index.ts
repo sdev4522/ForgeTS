@@ -8,5 +8,5 @@ export { QueryBuilder } from './QueryBuilder.js';
 export { getDatabaseConnection, setDatabaseConnection, getMongoDriver, setMongoDriver, resetDatabaseConnection } from './Connection.js';
 export { MongoDriver } from './MongoDriver.js';
 export type { DatabaseDriver, FindOptions } from './DatabaseDriver.js';
-export { Column, HasMany, BelongsTo, HasOne } from './decorators.js';
+export { Column, HasMany, BelongsTo, HasOne, MODEL_COLUMNS, MODEL_RELATIONS } from './decorators.js';
 export { formatMysqlDateTime, serializeDatabaseValue, serializeModelAttributes } from './serializer.js';

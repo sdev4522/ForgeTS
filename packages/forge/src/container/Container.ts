@@ -14,6 +14,8 @@ export type Constructor<T = any> = new (...args: any[]) => T;
 export type Factory<T = any> = () => T;
 export type Token<T = any> = Constructor<T> | string | symbol;
 
+import { BindingResolutionException } from '../errors/index.js';
+
 interface Binding<T = any> {
   factory: Factory<T>;
   lifetime: 'singleton' | 'transient';
@@ -84,10 +86,7 @@ export class Container {
         return instance;
       }
 
-      throw new Error(
-        `[ForgeTS] No binding found for: ${String(token)}. ` +
-          `Register it in a provider using container.bind() or container.singleton().`,
-      );
+      throw new BindingResolutionException(token);
     }
 
     if (binding.lifetime === 'singleton') {

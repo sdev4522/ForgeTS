@@ -19,10 +19,34 @@ import { join, resolve } from 'node:path';
 import { Container } from '../container/Container.js';
 import { Router, type RegisteredRoute } from '../routing/Router.js';
 import { RouteResolver, type ResolvedRoute } from '../routing/RouteResolver.js';
-import { Request, ValidationException } from '../http/Request.js';
-import { ValidationError } from '../http/Validator.js';
+import { Request } from '../http/Request.js';
 import { ForgeResponse, normalizeHttpStatus, isValidHttpStatus } from '../http/Response.js';
 import { ErrorDisplayEngine } from '../http/ErrorDisplayEngine.js';
+import {
+  ErrorNormalizer,
+  ContextCollector,
+  ContentNegotiator,
+  HtmlErrorRenderer,
+  JsonErrorRenderer,
+  FallbackRenderer,
+  Redactor,
+  ForgeError,
+  HttpError,
+  HttpException,
+  NotFoundException,
+  UnauthorizedException,
+  ForbiddenException,
+  BadRequestException,
+  MethodNotAllowedException,
+  UnprocessableEntityException,
+  ServiceUnavailableException,
+  InternalServerErrorException,
+  ValidationError,
+  ValidationException,
+  ModelNotFoundException,
+  BindingResolutionException,
+  ViewNotFoundException,
+} from '../errors/index.js';
 import { executePipeline } from '../http/Pipeline.js';
 import { initConfig, getConfigManager, type ConfigManager } from '../config/ConfigManager.js';
 import { env } from '../config/env.js';
@@ -44,7 +68,7 @@ export abstract class Provider {
 // ─── Application ───
 
 export class Application {
-  public static readonly VERSION = '0.1.0';
+  public static readonly VERSION = '0.8.0';
   readonly container: Container;
   readonly events: EventDispatcher;
   private resolver: RouteResolver;
@@ -483,7 +507,7 @@ export class Application {
 
         return response.toNativeResponse();
       } catch (error) {
-        return this.handleError(error, rawRequest, req);
+        return this.handleError(error, rawRequest, req, resolved);
       }
     } catch (error) {
       return this.handleError(error, rawRequest);
@@ -498,9 +522,15 @@ export class Application {
     error: unknown,
     rawRequest?: globalThis.Request,
     forgeReq?: Request,
+    routeInfo?: ResolvedRoute | null,
   ): globalThis.Response {
     try {
-      return this.doHandleError(error, rawRequest, forgeReq);
+      // Early emergency check if error object is hostile with throwing getters
+      if (typeof error === 'object' && error !== null) {
+        const _m = (error as any).message;
+        const _s = (error as any).stack;
+      }
+      return this.doHandleError(error, rawRequest, forgeReq, routeInfo);
     } catch (criticalHandlerError) {
       console.error(
         '[ForgeTS Critical Error] Error handler threw an unhandled exception:',
@@ -524,202 +554,60 @@ export class Application {
     error: unknown,
     rawRequest?: globalThis.Request,
     forgeReq?: Request,
+    routeInfo?: ResolvedRoute | null,
   ): globalThis.Response {
-    // 1. Validation errors → 422
-    if (error instanceof ValidationError || error instanceof ValidationException) {
-      return new ForgeResponse()
-        .status(422)
-        .json({
-          message: 'The given data was invalid.',
-          statusCode: 422,
-          errors: (error as any).errors,
-        })
-        .toNativeResponse();
-    }
+    // 1. Normalize the error
+    const normalized = ErrorNormalizer.normalize(error);
 
-    if (error instanceof UnprocessableEntityException) {
-      const isDebugEarly =
-        process.env.APP_DEBUG !== undefined
-          ? env.boolean('APP_DEBUG', false)
-          : (this.configManager?.get<boolean>('app.debug') ?? false);
-      const pathnameEarly = rawRequest ? new URL(rawRequest.url, 'http://localhost').pathname : '';
-      const isApiRouteEarly = pathnameEarly.startsWith('/api/') || pathnameEarly === '/api';
-      const prefersHtmlEarly = !isApiRouteEarly && (rawRequest?.headers.get('accept') ?? '').includes('text/html');
+    // 2. Collect contextual request, route, and environment metadata
+    const context = ContextCollector.collect(rawRequest, forgeReq, routeInfo);
 
-      if (prefersHtmlEarly) {
-        const html = isDebugEarly
-          ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
-          : ErrorDisplayEngine.renderProductionHtml(422, error.message);
-        return new ForgeResponse().status(422).html(html).toNativeResponse();
-      }
-      return new ForgeResponse()
-        .status(422)
-        .json({
-          message: error.message,
-          statusCode: 422,
-          ...(error.errors ? { errors: error.errors } : {}),
-        })
-        .toNativeResponse();
-    }
-
+    // 3. Determine if debug mode is active
     const isDebug =
       process.env.APP_DEBUG !== undefined
         ? env.boolean('APP_DEBUG', false)
         : (this.configManager?.get<boolean>('app.debug') ?? false);
-    const acceptHeader = rawRequest?.headers.get('accept') ?? '';
-    const pathname = rawRequest ? new URL(rawRequest.url, 'http://localhost').pathname : '';
-    const isApiRoute = pathname.startsWith('/api/') || pathname === '/api';
-    const prefersHtml = !isApiRoute && acceptHeader.includes('text/html');
-    const wantsJson = !prefersHtml;
+    context.environment.appDebug = isDebug;
 
-    // 2. Database Connection / Network Outage → 503 Service Unavailable
-    const errCode = (error as any)?.code;
-    const errName = (error as any)?.name;
-    const errMsg = (error as any)?.message ?? '';
-    const isDbError =
-      errCode === 'ECONNREFUSED' ||
-      errCode === 'ETIMEDOUT' ||
-      errCode === 'ENOTFOUND' ||
-      errCode === 'ER_ACCESS_DENIED_ERROR' ||
-      errName === 'MongoNetworkError' ||
-      errName === 'MongoServerSelectionError' ||
-      errMsg.includes('ECONNREFUSED') ||
-      errMsg.includes('MongoConnectionFailure') ||
-      errMsg.includes('[ForgeTS Mongo Connection Failure]') ||
-      errMsg.includes('[ForgeTS Database Error]');
-
-    if (isDbError) {
-      console.error('[ForgeTS Database Resilience] Request failed due to database connection issue:', ErrorDisplayEngine.redactSecrets(errMsg));
-      const redactedMsg = ErrorDisplayEngine.redactSecrets(errMsg);
-      const dbMessage = isDebug
-        ? `Service Unavailable: Database connection failed (${redactedMsg})`
-        : 'Service Unavailable: Database connection failed.';
-
-      if (prefersHtml) {
-        const html = isDebug
-          ? ErrorDisplayEngine.renderHtml(new HttpException(503, dbMessage), rawRequest, forgeReq)
-          : ErrorDisplayEngine.renderProductionHtml(503, dbMessage);
-        return new ForgeResponse().status(503).html(html).toNativeResponse();
+    // 4. Log errors to server console with Error ID correlation
+    if (normalized.statusCode >= 500) {
+      console.error(
+        `[ForgeTS Error ${context.errorId}] [${normalized.statusCode}] ${normalized.type}: ${normalized.message}`,
+      );
+      if (normalized.stack) {
+        console.error(normalized.stack);
       }
-
-      return new ForgeResponse()
-        .status(503)
-        .json({
-          error: dbMessage,
-          statusCode: 503,
-        })
-        .toNativeResponse();
     }
 
-    // 3. Custom HttpException → status code
-    if (error instanceof HttpException) {
-      const statusCode = normalizeHttpStatus(error.statusCode, 500);
-      if (statusCode >= 500) {
-        console.error('[ForgeTS] Unhandled error:', error);
-      }
+    // 5. Content negotiation: HTML browser page vs JSON API response
+    const prefersHtml = ContentNegotiator.prefersHtml(rawRequest, context.request.path);
 
-      if (prefersHtml) {
-        const html = isDebug
-          ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
-          : ErrorDisplayEngine.renderProductionHtml(statusCode, error.message);
-        return new ForgeResponse()
-          .status(statusCode)
-          .html(html)
-          .toNativeResponse();
-      }
+    if (prefersHtml) {
+      const html = isDebug
+        ? HtmlErrorRenderer.renderDebug(normalized, context)
+        : HtmlErrorRenderer.renderProduction(normalized.statusCode, normalized.message, context.errorId);
 
-      return new ForgeResponse()
-        .status(statusCode)
-        .json({
-          error: error.message,
-          statusCode,
-        })
-        .toNativeResponse();
+      return new globalThis.Response(html, {
+        status: normalized.statusCode,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'X-Error-Id': context.errorId,
+        },
+      });
     }
 
-    // 4. Any Error with explicit valid statusCode or status property
-    const rawStatusCode = (error as any)?.statusCode ?? (error as any)?.status;
-    if (rawStatusCode !== undefined && isValidHttpStatus(rawStatusCode)) {
-      const statusCode = rawStatusCode;
-      if (statusCode >= 500) {
-        console.error('[ForgeTS] Unhandled error:', error);
-      }
+    // JSON response (API / non-HTML requests)
+    const jsonPayload = isDebug
+      ? JsonErrorRenderer.renderDebug(normalized, context)
+      : JsonErrorRenderer.renderProduction(normalized, context);
 
-      const msg = (error as any)?.message || 'An error occurred';
-      if (prefersHtml) {
-        const html = isDebug
-          ? ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq)
-          : ErrorDisplayEngine.renderProductionHtml(statusCode, msg);
-        return new ForgeResponse()
-          .status(statusCode)
-          .html(html)
-          .toNativeResponse();
-      }
-
-      return new ForgeResponse()
-        .status(statusCode)
-        .json({
-          error: msg,
-          statusCode,
-        })
-        .toNativeResponse();
-    }
-
-    // 5. System / Unknown Exception → 500
-    console.error('[ForgeTS] Unhandled error:', error);
-
-    if (isDebug) {
-      if (wantsJson) {
-        const errObj = error instanceof Error ? error : new Error(String(error));
-        const redactedMessage = ErrorDisplayEngine.redactSecrets(errObj.message);
-        const rawStack = ErrorDisplayEngine.redactSecrets(errObj.stack ?? '');
-        const stackLines = rawStack
-          ? rawStack.split('\n').map((line) => line.trim())
-          : [];
-        const diagnostics = ErrorDisplayEngine.extractDiagnostics(errObj);
-
-        return new ForgeResponse()
-          .status(500)
-          .json({
-            message: redactedMessage,
-            name: errObj.name || 'Error',
-            ...(diagnostics.length > 0
-              ? {
-                  diagnostics: diagnostics.map((d) => ({
-                    name: d.name,
-                    message: d.message,
-                    file: d.location?.file,
-                    line: d.location?.line,
-                    column: d.location?.column,
-                  })),
-                }
-              : {}),
-            stack: stackLines,
-          })
-          .toNativeResponse();
-      }
-
-      // Render rich HTML debug error page for browser requests
-      const debugHtml = ErrorDisplayEngine.renderHtml(error, rawRequest, forgeReq);
-      return new ForgeResponse()
-        .status(500)
-        .html(debugHtml)
-        .toNativeResponse();
-    }
-
-    // Non-debug / Production mode: generic response only
-    if (wantsJson) {
-      return new ForgeResponse()
-        .status(500)
-        .json({ message: 'Internal Server Error' })
-        .toNativeResponse();
-    }
-
-    const prodHtml = ErrorDisplayEngine.renderProductionHtml(500, 'Internal Server Error');
-    return new ForgeResponse()
-      .status(500)
-      .html(prodHtml)
-      .toNativeResponse();
+    return new globalThis.Response(JSON.stringify(jsonPayload), {
+      status: normalized.statusCode,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-Error-Id': context.errorId,
+      },
+    });
   }
 
   /**
@@ -730,44 +618,22 @@ export class Application {
   }
 }
 
-// ─── Base Exception Class ───
-
-export class HttpException extends Error {
-  constructor(
-    public readonly statusCode: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'HttpException';
-  }
-}
-
-export class NotFoundException extends HttpException {
-  constructor(message: string = 'Not Found') {
-    super(404, message);
-  }
-}
-
-export class UnauthorizedException extends HttpException {
-  constructor(message: string = 'Unauthorized') {
-    super(401, message);
-  }
-}
-
-export class ForbiddenException extends HttpException {
-  constructor(message: string = 'Forbidden') {
-    super(403, message);
-  }
-}
-
-export class BadRequestException extends HttpException {
-  constructor(message: string = 'Bad Request') {
-    super(400, message);
-  }
-}
-
-export class UnprocessableEntityException extends HttpException {
-  constructor(message: string = 'Unprocessable Entity', public readonly errors?: unknown) {
-    super(422, message);
-  }
-}
+// ─── Framework Exception Classes ───
+export {
+  ForgeError,
+  HttpError,
+  HttpException,
+  NotFoundException,
+  UnauthorizedException,
+  ForbiddenException,
+  BadRequestException,
+  MethodNotAllowedException,
+  UnprocessableEntityException,
+  ServiceUnavailableException,
+  InternalServerErrorException,
+  ValidationError,
+  ValidationException,
+  ModelNotFoundException,
+  BindingResolutionException,
+  ViewNotFoundException,
+};

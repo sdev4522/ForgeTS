@@ -151,7 +151,19 @@ rendering `resources/js/pages/welcome.tsx` inside the `app.html` shell).
   - Task 5: Database DateTime/Timestamp Generic Serialization — [Completed] Established generic serialization contract between ORM Models, QueryBuilder, and database drivers (`packages/forge/src/database/serializer.ts`). MySQL DATETIME columns receive explicit `YYYY-MM-DD HH:mm:ss[.sss]` representations in the configured timezone (`app.timezone`, default UTC with pool `timezone: 'Z'`), while MongoDB preserves native Date objects. Handles automatic `created_at`/`updated_at` timestamps, explicit Date objects, ISO-8601 strings, `where` queries, `null` values, and throws explicit `TypeError` on invalid Date objects. API responses cleanly serialize hydrated Date objects to standard ISO-8601 strings via `Date.prototype.toJSON()`.
   - Task 6: View Data & Active Record Serialization Boundary — [Completed] Added `serializeViewData()` utility in `packages/forge/src/http/serializer.ts` (exported from `@forge/core`). Integrated deep unwrapping into `ForgeResponse.view()` and `ReactEngine.renderPage()` so that returning `User.all()` or individual `Model` instances automatically normalizes them via `toJSON()`. Enhanced `Model` ES6 Proxy with `ownKeys`, `has`, and `getOwnPropertyDescriptor` traps so `Object.keys(model)` and `{ ...model }` reflect model attributes directly without leaking `_attributes` into React SSR props or client hydration script tags (`__FORGETS_DATA__`). Verified with dedicated unit tests (`tests/unit/ViewDataSerialization.test.ts`).
 
-- **v0.5 — Batteries Included** (queues, storage, mail, cache, events) — NOT STARTED
+- **v0.5 — Batteries Included** (queues, storage, mail, cache, events) — In Progress (Event Subsystem complete)
+
+- **v0.8 — Production Hardening & Static Analysis Pass** — **COMPLETED & VERIFIED**
+  - Full TypeScript strict static analysis pass (`tsc -p tsconfig.json --noEmit` passing with 0 errors across 100% of the codebase).
+  - Fixed Stage 3 decorator metadata context unguarded accesses across `@Column`, `@HasMany`, `@BelongsTo`, `@Injectable`, and `@Controller`.
+  - Replaced invalid ambient `@Column() declare` field decorators with standard typed class fields, preserving TC39 Stage 3 `Symbol.metadata` registration.
+  - Cleaned application layer: transformed `AboutController` into a clean presentation controller, removed fake fallback credentials in `UserController.ts`, and updated `welcome.tsx` reference app link and code window to `UserController`.
+  - Removed dead `postgres` configuration block in `config/database.ts`.
+  - Fixed CLI migration scaffolding templates in `bin/forge.ts` to use SQL `datetime` instead of SQLite `'text'`.
+  - Hardened `ErrorDisplayEngine.renderJson` facade for structured API error diagnostics.
+  - Bumped framework version to `0.8.0` in `package.json`, `Application.ts`, and `bin/forge.ts`.
+  - Verified entire test suite: 150 passed across 21 test files with 100% passing tests.
+  - Verified production client and SSR bundling (`bun run build`) and production server boot (`NODE_ENV=production bun run bin/serve.ts`).
 
 ---
 

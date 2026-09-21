@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { describe, expect, test, beforeAll } from 'bun:test';
-import app from '../../bootstrap/app.ts';
+import app from '../../bootstrap/app.js';
 import { getDatabaseConnection } from '@forge/database';
 
 describe('Security Access Control & Static Asset Scoping', () => {

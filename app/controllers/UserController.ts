@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Delete } from '@forge/core';
 import type { Request, ForgeResponse } from '@forge/core';
-import { User } from '../models/User.ts';
+import { User } from '@/models/User.js';
 
 @Controller('/user')
 export class UserController {
@@ -25,8 +25,7 @@ export class UserController {
 
   @Post('/')
   async store(req: Request, res: ForgeResponse) {
-    const rawBody = typeof (req as any).body === 'function' ? req.body() : (req as any).body;
-    let data = rawBody;
+    let data = req.body<Record<string, any>>() || {};
     if (!data || Object.keys(data).length === 0) {
       try {
         data = await req.json();
@@ -35,10 +34,14 @@ export class UserController {
       }
     }
 
+    if (!data.name || !data.email) {
+      return res.badRequest('Name and email are required');
+    }
+
     const user = await User.create({
-      name: data.name || 'Anonymous',
-      email: data.email || 'anon@example.com',
-      password: data.password || 'password123',
+      name: String(data.name).trim(),
+      email: String(data.email).trim(),
+      password: data.password ? String(data.password) : '',
     });
 
     if (req.wantsJson() || req.isJson()) {
@@ -54,8 +57,7 @@ export class UserController {
     if (!user) {
       return res.notFound('User not found');
     }
-    const rawBody = typeof (req as any).body === 'function' ? req.body() : (req as any).body;
-    let data = rawBody || {};
+    let data = req.body<Record<string, any>>() || {};
     if (!data || Object.keys(data).length === 0) {
       try {
         data = await req.json();

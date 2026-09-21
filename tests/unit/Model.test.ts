@@ -15,7 +15,7 @@ import {
 import { Model, Column, HasMany, BelongsTo, setDatabaseConnection } from '../../packages/forge/src/database/index.js';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
-import dbConfig from '../../config/database.ts';
+import dbConfig from '../../config/database.js';
 
 // ─── Lightweight In-Memory Mock SQL Dialect ───
 
@@ -53,7 +53,7 @@ class MemoryConnection implements DatabaseConnection {
       });
 
       this.tables[table].push(record);
-      return { insertId: BigInt(id), numUpdatedOrDeletedRows: BigInt(1), rows: [] };
+      return { insertId: BigInt(id), numAffectedRows: BigInt(1), rows: [] };
     }
 
     if (sql.startsWith('select')) {
@@ -92,7 +92,7 @@ class MemoryConnection implements DatabaseConnection {
           });
         }
       }
-      return { numUpdatedOrDeletedRows: BigInt(1), rows: [] };
+      return { numAffectedRows: BigInt(1), rows: [] };
     }
 
     if (sql.startsWith('delete from')) {
@@ -102,7 +102,7 @@ class MemoryConnection implements DatabaseConnection {
       if (this.tables[table]) {
         this.tables[table] = this.tables[table].filter((r) => r.id !== targetId);
       }
-      return { numUpdatedOrDeletedRows: BigInt(1), rows: [] };
+      return { numAffectedRows: BigInt(1), rows: [] };
     }
 
     return { rows: [] };
@@ -136,23 +136,23 @@ class MemorySqlDialect implements Dialect {
 class User extends Model {
   static override table = 'users';
 
-  @Column() declare id: number;
-  @Column() declare name: string;
-  @Column() declare email: string;
+  @Column() id!: number;
+  @Column() name!: string;
+  @Column() email!: string;
 
   @HasMany(() => Post, 'user_id')
-  declare posts: Post[];
+  posts!: Post[];
 }
 
 class Post extends Model {
   static override table = 'posts';
 
-  @Column() declare id: number;
-  @Column() declare title: string;
-  @Column() declare user_id: number;
+  @Column() id!: number;
+  @Column() title!: string;
+  @Column() user_id!: number;
 
   @BelongsTo(() => User, 'user_id')
-  declare author: User;
+  author!: User;
 }
 
 describe('Active Record Model & QueryBuilder', () => {

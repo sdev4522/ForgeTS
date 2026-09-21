@@ -55,14 +55,9 @@ async function serve() {
           fetch(req: Request) {
             const accept = req.headers.get('accept') ?? '';
             if (accept.includes('application/json') && !accept.includes('text/html')) {
-              const e = err instanceof Error ? err : new Error(String(err));
               return Response.json(
-                {
-                  error: e.message,
-                  name: e.name,
-                  stack: e.stack ? e.stack.split('\n').map((l) => l.trim()) : [],
-                },
-                { status: 500 },
+                ErrorDisplayEngine.renderJson(err, req.url),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
               );
             }
             const html = ErrorDisplayEngine.renderHtml(err, req.url);

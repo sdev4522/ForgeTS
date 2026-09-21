@@ -9,7 +9,7 @@ import '../../packages/forge/src/polyfills.js';
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
-import dbConfig from '../../config/database.ts';
+import dbConfig from '../../config/database.js';
 import {
   getDatabaseConnection,
   resetDatabaseConnection,
@@ -24,12 +24,12 @@ class TestArticle extends Model {
   static override table = 'test_articles';
   static override fillable = ['title', 'published_at', 'archived_at', 'created_at', 'updated_at'];
 
-  @Column() declare id: number;
-  @Column() declare title: string;
-  @Column() declare published_at: Date | string | null;
-  @Column() declare archived_at: Date | string | null;
-  @Column() declare created_at: Date;
-  @Column() declare updated_at: Date;
+  @Column() id!: number;
+  @Column() title!: string;
+  @Column() published_at!: Date | string | null;
+  @Column() archived_at!: Date | string | null;
+  @Column() created_at!: Date;
+  @Column() updated_at!: Date;
 }
 
 describe('Database DateTime/Timestamp Generic Serialization Suite', () => {

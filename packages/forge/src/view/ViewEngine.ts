@@ -9,6 +9,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { ViewNotFoundException } from '../errors/index.js';
 
 export class ViewEngine {
   private viewsDir: string;
@@ -84,11 +85,7 @@ export class ViewEngine {
       }
     }
 
-    throw new Error(
-      `[ForgeTS] View template not found: '${name}'. ` +
-        `Looked in: ${this.viewsDir}. ` +
-        `Make sure the file exists at resources/views/${name}.html`,
-    );
+    throw new ViewNotFoundException(name, this.viewsDir);
   }
 
   /**

@@ -6,7 +6,7 @@ import { Model, Column } from '../../packages/forge/src/database/index.js';
 import { setMongoDriver } from '../../packages/forge/src/database/Connection.js';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
-import dbConfig from '../../config/database.ts';
+import dbConfig from '../../config/database.js';
 
 // ─── In-Memory Mongo Mock Driver for Unit Tests ───
 
@@ -92,10 +92,10 @@ class TestLogEntry extends Model {
   static override connection = 'mongodb';
   static override fillable = ['level', 'message', 'context', 'created_at', 'updated_at'];
 
-  @Column() declare id: string;
-  @Column() declare level: string;
-  @Column() declare message: string;
-  @Column() declare context: Record<string, any>;
+  @Column() id!: string;
+  @Column() level!: string;
+  @Column() message!: string;
+  @Column() context!: Record<string, any>;
 }
 
 describe('MongoDB Driver & Active Record Integration', () => {

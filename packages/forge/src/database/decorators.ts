@@ -12,11 +12,14 @@ export type RelationType = 'hasMany' | 'belongsTo' | 'hasOne';
 export interface RelationDefinition {
   type: RelationType;
   propertyKey: string | symbol;
-  targetModelGetter: () => new (...args: any[]) => any;
+  targetModelGetter: () => any;
   foreignKey: string;
 }
 
-function getOrCreateArray<T>(metadata: DecoratorMetadataObject, key: symbol): T[] {
+function getOrCreateArray<T>(metadata: DecoratorMetadataObject | undefined, key: symbol): T[] {
+  if (!metadata) {
+    return [] as T[];
+  }
   if (!metadata[key]) {
     metadata[key] = [] as T[];
   }
@@ -27,7 +30,10 @@ function getOrCreateArray<T>(metadata: DecoratorMetadataObject, key: symbol): T[
  * Mark a class property as a database column.
  */
 export function Column() {
-  return function (_target: undefined, context: ClassFieldDecoratorContext) {
+  return function (
+    _target: undefined | ClassAccessorDecoratorTarget<any, any>,
+    context: ClassFieldDecoratorContext | ClassAccessorDecoratorContext,
+  ) {
     const columns = getOrCreateArray<string | symbol>(context.metadata, MODEL_COLUMNS);
     columns.push(context.name);
   };
@@ -39,11 +45,14 @@ export function Column() {
  * @example
  * ```ts
  * @HasMany(() => Post, 'user_id')
- * declare posts: Post[];
+ * posts!: Post[];
  * ```
  */
-export function HasMany(targetModelGetter: () => new (...args: any[]) => any, foreignKey: string) {
-  return function (_target: undefined, context: ClassFieldDecoratorContext) {
+export function HasMany(targetModelGetter: () => any, foreignKey: string) {
+  return function (
+    _target: undefined | ClassAccessorDecoratorTarget<any, any>,
+    context: ClassFieldDecoratorContext | ClassAccessorDecoratorContext,
+  ) {
     const relations = getOrCreateArray<RelationDefinition>(context.metadata, MODEL_RELATIONS);
     relations.push({
       type: 'hasMany',
@@ -60,11 +69,14 @@ export function HasMany(targetModelGetter: () => new (...args: any[]) => any, fo
  * @example
  * ```ts
  * @BelongsTo(() => User, 'user_id')
- * declare author: User;
+ * author!: User;
  * ```
  */
-export function BelongsTo(targetModelGetter: () => new (...args: any[]) => any, foreignKey: string) {
-  return function (_target: undefined, context: ClassFieldDecoratorContext) {
+export function BelongsTo(targetModelGetter: () => any, foreignKey: string) {
+  return function (
+    _target: undefined | ClassAccessorDecoratorTarget<any, any>,
+    context: ClassFieldDecoratorContext | ClassAccessorDecoratorContext,
+  ) {
     const relations = getOrCreateArray<RelationDefinition>(context.metadata, MODEL_RELATIONS);
     relations.push({
       type: 'belongsTo',
@@ -78,8 +90,11 @@ export function BelongsTo(targetModelGetter: () => new (...args: any[]) => any, 
 /**
  * Define a HasOne relationship (One to One).
  */
-export function HasOne(targetModelGetter: () => new (...args: any[]) => any, foreignKey: string) {
-  return function (_target: undefined, context: ClassFieldDecoratorContext) {
+export function HasOne(targetModelGetter: () => any, foreignKey: string) {
+  return function (
+    _target: undefined | ClassAccessorDecoratorTarget<any, any>,
+    context: ClassFieldDecoratorContext | ClassAccessorDecoratorContext,
+  ) {
     const relations = getOrCreateArray<RelationDefinition>(context.metadata, MODEL_RELATIONS);
     relations.push({
       type: 'hasOne',

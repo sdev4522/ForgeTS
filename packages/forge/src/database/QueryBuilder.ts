@@ -8,6 +8,7 @@ import type { Model } from './Model.js';
 import { getDatabaseConnection, getMongoDriver } from './Connection.js';
 import { MODEL_RELATIONS, type RelationDefinition } from './decorators.js';
 import { serializeDatabaseValue } from './serializer.js';
+import { ModelNotFoundException } from '../errors/index.js';
 
 export class QueryBuilder<M extends typeof Model> {
   private sqlQuery: any = null;
@@ -135,7 +136,7 @@ export class QueryBuilder<M extends typeof Model> {
       rows = await this.sqlQuery.execute();
     }
 
-    const instances = rows.map((row) => this.modelClass.hydrate<InstanceType<M>>(row));
+    const instances = rows.map((row) => (this.modelClass as any).hydrate(row) as InstanceType<M>);
 
     if (this.eagerRelations.length > 0 && instances.length > 0) {
       if (this.isMongo()) {
@@ -164,13 +165,13 @@ export class QueryBuilder<M extends typeof Model> {
   async firstOrFail(): Promise<InstanceType<M>> {
     const instance = await this.first();
     if (!instance) {
-      throw new Error(`[ForgeTS Resource Not Found] Resource not found for model ${this.modelClass.name}`);
+      throw new ModelNotFoundException(this.modelClass.name);
     }
     return instance;
   }
 
   private async loadEagerRelations(instances: InstanceType<M>[]): Promise<void> {
-    const metadata = (this.modelClass as any)[Symbol.metadata];
+    const metadata = (this.modelClass as any)[Symbol.metadata as any];
     if (!metadata) return;
 
     const relations = (metadata[MODEL_RELATIONS] as RelationDefinition[]) ?? [];
@@ -179,7 +180,7 @@ export class QueryBuilder<M extends typeof Model> {
       const relDef = relations.find((r) => String(r.propertyKey) === relName);
       if (!relDef) continue;
 
-      const TargetClass = relDef.targetModelGetter();
+      const TargetClass: any = relDef.targetModelGetter();
       const primaryKey = this.modelClass.getPrimaryKey();
 
       if (relDef.type === 'hasMany') {

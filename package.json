@@ -1,6 +1,6 @@
 {
   "name": "forge-ts",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "description": "A batteries-included, TypeScript-first web framework — Laravel DX for the JS ecosystem, built for speed.",
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:ssr": "vite build --ssr --mode production",
     "build": "NODE_ENV=production bun run build:client && NODE_ENV=production bun run build:ssr",
     "start": "NODE_ENV=production bun run bin/serve.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",
     "test:security": "bun test tests/integration/SecurityAccessControl.test.ts",
     "forge": "bun run bin/forge.ts"

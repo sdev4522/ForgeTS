@@ -657,8 +657,8 @@ export default function WelcomePage({
           </p>
 
           <div className="fw-hero-actions">
-            <a href="/docs" className="fw-btn-primary">Read Documentation</a>
-            <a href="/todos" className="fw-btn-secondary">Launch Reference App</a>
+            <a href="/user" className="fw-btn-primary">Manage Users (CRUD)</a>
+            <a href="/about" className="fw-btn-secondary">About Framework</a>
           </div>
 
           <div className="fw-quickstart-box">
@@ -777,26 +777,26 @@ export default function WelcomePage({
                   <span className="fw-terminal-dot"></span>
                   <span className="fw-terminal-dot"></span>
                 </div>
-                <span className="fw-code-filename">app/controllers/TodoController.ts</span>
+                <span className="fw-code-filename">app/controllers/UserController.ts</span>
                 <span style={{ color: '#6b7280', fontSize: '11px' }}>TypeScript</span>
               </div>
               <pre className="fw-code-pre">
                 <code>
-                  <span className="syn-kw">import</span> {'{ Controller, Get, Post, Middleware }'} <span className="syn-kw">from</span> <span className="syn-str">'@forge/core'</span>;<br />
+                  <span className="syn-kw">import</span> {'{ Controller, Get, Post }'} <span className="syn-kw">from</span> <span className="syn-str">'@forge/core'</span>;<br />
                   <span className="syn-kw">import type</span> {'{ Request, ForgeResponse }'} <span className="syn-kw">from</span> <span className="syn-str">'@forge/core'</span>;<br />
-                  <span className="syn-kw">import</span> {'{ Todo }'} <span className="syn-kw">from</span> <span className="syn-str">'../models/Todo.js'</span>;<br /><br />
-                  <span className="syn-dec">@Controller</span>(<span className="syn-str">'/todos'</span>)<br />
-                  <span className="syn-kw">export class</span> <span className="syn-type">TodoController</span> {'{'}<br />
+                  <span className="syn-kw">import</span> {'{ User }'} <span className="syn-kw">from</span> <span className="syn-str">'@/models/User.js'</span>;<br /><br />
+                  <span className="syn-dec">@Controller</span>(<span className="syn-str">'/user'</span>)<br />
+                  <span className="syn-kw">export class</span> <span className="syn-type">UserController</span> {'{'}<br />
                   &nbsp;&nbsp;<span className="syn-dec">@Get</span>(<span className="syn-str">'/'</span>)<br />
                   &nbsp;&nbsp;<span className="syn-kw">async</span> <span className="syn-fn">index</span>(_req: <span className="syn-type">Request</span>, res: <span className="syn-type">ForgeResponse</span>) {'{'}<br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">const</span> todos = <span className="syn-kw">await</span> Todo.<span className="syn-fn">all</span>();<br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">return</span> res.<span className="syn-fn">view</span>(<span className="syn-str">'todos/index'</span>, {'{ todos }'});<br />
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">const</span> users = <span className="syn-kw">await</span> User.<span className="syn-fn">all</span>();<br />
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">return</span> res.<span className="syn-fn">view</span>(<span className="syn-str">'user'</span>, {'{ userData: users }'});<br />
                   &nbsp;&nbsp;{'}'}<br /><br />
                   &nbsp;&nbsp;<span className="syn-dec">@Post</span>(<span className="syn-str">'/'</span>)<br />
                   &nbsp;&nbsp;<span className="syn-kw">async</span> <span className="syn-fn">store</span>(req: <span className="syn-type">Request</span>, res: <span className="syn-type">ForgeResponse</span>) {'{'}<br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">const</span> data = <span className="syn-kw">await</span> req.<span className="syn-fn">validate</span>({'{ title: '}<span className="syn-str">'required|min:3'</span> {'}'});<br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">await</span> Todo.<span className="syn-fn">create</span>(data);<br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">return</span> res.<span className="syn-fn">redirect</span>(<span className="syn-str">'/todos'</span>);<br />
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">const</span> data = req.<span className="syn-fn">body</span>();<br />
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">await</span> User.<span className="syn-fn">create</span>(data);<br />
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="syn-kw">return</span> res.<span className="syn-fn">redirect</span>(<span className="syn-str">'/user'</span>);<br />
                   &nbsp;&nbsp;{'}'}<br />
                   {'}'}
                 </code>
@@ -867,11 +867,9 @@ export default function WelcomePage({
             ForgeTS Framework &middot; TypeScript on Bun &middot; Environment: {environment}
           </div>
           <div className="fw-footer-links">
-            <a href="/docs" className="fw-footer-link">Documentation</a>
-            <a href="/docs/routing" className="fw-footer-link">Routing</a>
-            <a href="/docs/models" className="fw-footer-link">Models</a>
-            <a href="/docs/cli" className="fw-footer-link">CLI</a>
-            <a href="/todos" className="fw-footer-link">Reference App</a>
+            <a href="/" className="fw-footer-link">Home</a>
+            <a href="/about" className="fw-footer-link">About</a>
+            <a href="/user" className="fw-footer-link">User Management</a>
           </div>
         </div>
       </footer>

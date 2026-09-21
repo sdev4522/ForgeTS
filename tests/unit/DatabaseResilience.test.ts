@@ -1,10 +1,10 @@
 // tests/unit/DatabaseResilience.test.ts
 import { describe, test, expect, beforeAll, afterEach } from 'bun:test';
 import { verifyDatabaseConnectionOnBoot, resetDatabaseConnection } from '../../packages/forge/src/database/Connection.js';
-import app from '../../bootstrap/app.ts';
+import app from '../../bootstrap/app.js';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
-import dbConfig from '../../config/database.ts';
+import dbConfig from '../../config/database.js';
 
 describe('Database Failure Resilience & Fail-Fast Auditing', () => {
   beforeAll(() => {

@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getViteDevServer } from './ViteDevServer.js';
 import { serializeViewData } from '../http/serializer.js';
+import { ViewNotFoundException } from '../errors/index.js';
 
 export class ReactEngine {
   private rootDir: string;
@@ -109,7 +110,7 @@ export class ReactEngine {
         bodyHtml = await this.ssrModule.render(name, safeProps);
       } else {
         const pagePath = this.resolvePagePath(name);
-        if (!pagePath) throw new Error(`[ForgeTS React SSR] Page component not found: '${name}'`);
+        if (!pagePath) throw new ViewNotFoundException(name, this.pagesDir);
         const mod = await import(pagePath);
         const PageComponent = mod.default || mod[Object.keys(mod)[0]];
         bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, safeProps));
@@ -137,7 +138,7 @@ export class ReactEngine {
       // Dev mode: use Vite ssrLoadModule
       const pagePath = this.resolvePagePath(name);
       if (!pagePath) {
-        throw new Error(`[ForgeTS React SSR] Page component not found: '${name}'`);
+        throw new ViewNotFoundException(name, this.pagesDir);
       }
 
       let PageComponent: React.ComponentType<any>;

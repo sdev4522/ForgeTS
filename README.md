@@ -17,6 +17,7 @@
 - **Dependency Injection**: Inversion of Control container with explicit singleton and transient lifetimes and automatic class constructor resolution.
 - **Event Subsystem**: Deterministic FIFO event dispatcher supporting class and function listeners with automatic container dependency injection.
 - **Security by Default**: Stateful CSRF token verification (`CsrfMiddleware` with HTTP 419 on mismatch), sliding-window rate limiting (`@RateLimit` with HTTP 429), declarative input validation (`req.validate()`), Argon2id password hashing (`Hash`), and process secret redaction.
+- **First-Class Error Infrastructure**: Complete error subsystem with automated multi-layer secret redaction (`Redactor`), Ignition-style dark-mode HTML debug interface (`HtmlErrorRenderer`), structured dev JSON payloads, zero-leak production responses, deterministic error correlation IDs (`err_<id>`), and fail-safe recovery.
 - **`forge` CLI**: Scaffolding tool for controllers, models, migrations, services, middleware, full CRUD flows (`forge make:page <Name> --crud`), route auditing (`forge routes:list`), and cache management.
 
 ---
@@ -404,6 +405,7 @@ bun run start
 
 Detailed architectural guides and documentation are available in the `Docs/` directory:
 
+- [Error Infrastructure & Diagnostics Subsystem](Docs/ERROR_HANDLING.md)
 - [Active Record ORM Guide](Docs/ORM.md)
 - [React 19 Server-Side Rendering Guide](Docs/REACT_SSR.md)
 - [HTTP, Controllers, Routing & Security Guide](Docs/HTTP_ROUTING.md)

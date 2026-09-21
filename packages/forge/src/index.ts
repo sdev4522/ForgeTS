@@ -29,6 +29,54 @@ export { RateLimiter, RateLimit, createRateLimitMiddleware } from './http/RateLi
 export { ErrorDisplayEngine } from './http/ErrorDisplayEngine.js';
 export type { Middleware, MiddlewareClass, NextFunction } from './http/Middleware.js';
 
+// ─── Errors & Diagnostics ───
+export {
+  ForgeError,
+  type ForgeErrorOptions,
+  HttpError,
+  MethodNotAllowedException,
+  ServiceUnavailableException,
+  InternalServerErrorException,
+  RoutingError,
+  RouteNotFoundException,
+  MethodNotAllowedError,
+  ContainerError,
+  BindingResolutionException,
+  CircularDependencyException,
+  DatabaseError,
+  DatabaseConnectionException,
+  QueryException,
+  ModelNotFoundException,
+  ViewError,
+  ViewNotFoundException,
+  ViewRenderException,
+  ConfigurationError,
+  ConfigurationException,
+  AuthenticationError,
+  AuthorizationError,
+  Redactor,
+  SourceFrameReader,
+  type StackFrame,
+  type CodeSnippet,
+  type CodeSnippetLine,
+  ErrorNormalizer,
+  type NormalizedError,
+  type NormalizedCause,
+  type NormalizedDiagnostic,
+  type DiagnosticLocation,
+  ContextCollector,
+  type ErrorContext,
+  type RequestContext,
+  type RouteContext,
+  type EnvironmentContext,
+  ContentNegotiator,
+  HtmlErrorRenderer,
+  JsonErrorRenderer,
+  type DevJsonErrorResponse,
+  type ProdJsonErrorResponse,
+  FallbackRenderer,
+} from './errors/index.js';
+
 // ─── Security ───
 export { Hash, hash } from './security/hash.js';
 
