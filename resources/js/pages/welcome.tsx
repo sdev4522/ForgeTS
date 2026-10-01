@@ -635,6 +635,7 @@ export default function WelcomePage({
           </a>
           <nav className="fw-nav">
             <a href="/about" className="fw-nav-link">About</a>
+            <a href="/user" className="fw-nav-link">Users</a>
             <a href="/docs" className="fw-nav-cta">Get Started</a>
           </nav>
         </div>

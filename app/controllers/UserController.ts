@@ -4,48 +4,56 @@ import { User } from '@/models/User.js';
 
 @Controller('/user')
 export class UserController {
-
   @Get('/')
   async index(req: Request, res: ForgeResponse) {
     const users = await User.all();
+
     if (req.wantsJson() && !req.header('accept')?.includes('text/html')) {
       return res.json(users);
     }
-    return res.view('user', { userData: users });
+
+    return res.view('user/index', { userData: users });
   }
 
   @Get('/:id')
   async show(req: Request, res: ForgeResponse) {
     const user = await User.find(req.params.id);
+
     if (!user) {
       return res.notFound('User not found');
     }
+
     return res.json(user);
   }
 
   @Post('/')
   async store(req: Request, res: ForgeResponse) {
-    let data = req.body<Record<string, any>>() || {};
-    if (!data || Object.keys(data).length === 0) {
+    let data = req.body<Record<string, unknown>>() || {};
+
+    if (Object.keys(data).length === 0) {
       try {
-        data = await req.json();
+        data = await req.json<Record<string, unknown>>();
       } catch {
         data = {};
       }
     }
 
-    if (!data.name || !data.email) {
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    const email = typeof data.email === 'string' ? data.email.trim() : '';
+    const password = typeof data.password === 'string' ? data.password : '';
+
+    if (!name || !email) {
       return res.badRequest('Name and email are required');
     }
 
     const user = await User.create({
-      name: String(data.name).trim(),
-      email: String(data.email).trim(),
-      password: data.password ? String(data.password) : '',
+      name,
+      email,
+      password,
     });
 
     if (req.wantsJson() || req.isJson()) {
-      return res.created(user);
+      return res.status(201).json(user);
     }
 
     return res.redirect('/user');
@@ -54,22 +62,28 @@ export class UserController {
   @Put('/:id')
   async update(req: Request, res: ForgeResponse) {
     const user = await User.find(req.params.id);
+
     if (!user) {
       return res.notFound('User not found');
     }
-    let data = req.body<Record<string, any>>() || {};
-    if (!data || Object.keys(data).length === 0) {
+
+    let data = req.body<Record<string, unknown>>() || {};
+
+    if (Object.keys(data).length === 0) {
       try {
-        data = await req.json();
+        data = await req.json<Record<string, unknown>>();
       } catch {
         data = {};
       }
     }
+
     user.fill(data);
     await user.save();
+
     if (req.wantsJson() || req.isJson()) {
       return res.json(user);
     }
+
     return res.redirect('/user');
   }
 
@@ -81,13 +95,17 @@ export class UserController {
   @Delete('/:id')
   async destroy(req: Request, res: ForgeResponse) {
     const user = await User.find(req.params.id);
+
     if (!user) {
       return res.notFound('User not found');
     }
+
     await user.delete();
+
     if (req.wantsJson() || req.isJson()) {
       return res.noContent();
     }
+
     return res.redirect('/user');
   }
 
