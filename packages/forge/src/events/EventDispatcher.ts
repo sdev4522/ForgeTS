@@ -159,6 +159,19 @@ export class EventDispatcher {
   }
 
   /**
+   * Describe every registered event and its listeners (for tooling / manifest).
+   */
+  describe(): Array<{ event: string; listeners: string[] }> {
+    return [...this.listeners.entries()].map(([event, list]) => ({
+      event: event.name || '(anonymous)',
+      listeners: list.map((listener) => {
+        if (typeof listener === 'function') return listener.name || '(closure)';
+        return (listener as object)?.constructor?.name ?? '(object)';
+      }),
+    }));
+  }
+
+  /**
    * Remove all listeners registered for a given event class.
    */
   forget<T extends object>(event: EventConstructor<T>): void {

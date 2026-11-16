@@ -710,6 +710,16 @@ export class Application {
     });
   }
 
+  /** Project root directory this application was created with. */
+  getRootDir(): string {
+    return this.rootDir;
+  }
+
+  /** Middleware registered with app.use(), in execution order. */
+  getGlobalMiddleware(): readonly MiddlewareClass[] {
+    return this.globalMiddleware;
+  }
+
   /**
    * Get all registered routes (for CLI routes:list command).
    */

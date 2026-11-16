@@ -11,3 +11,10 @@ export { MongoDriver } from './MongoDriver.js';
 export type { DatabaseDriver, FindOptions } from './DatabaseDriver.js';
 export { Column, HasMany, BelongsTo, HasOne, MODEL_COLUMNS, MODEL_RELATIONS } from './decorators.js';
 export { formatMysqlDateTime, serializeDatabaseValue, serializeModelAttributes } from './serializer.js';
+export {
+  Migrator,
+  type MigrationModule,
+  type MigrationStatus,
+  type MigrationResult,
+  type MigratorOptions,
+} from './Migrator.js';

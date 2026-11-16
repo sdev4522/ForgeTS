@@ -123,3 +123,18 @@ export {
   type ListenerFunction,
   type EventListenerClass,
 } from './events/EventDispatcher.js';
+
+// ─── Introspection ───
+export {
+  buildManifest,
+  discoverModels,
+  MANIFEST_VERSION,
+  type ApplicationManifest,
+  type ManifestRoute,
+  type ManifestModel,
+  type ManifestRelation,
+  type ManifestWarning,
+  type ManifestMigrations,
+  type BuildManifestOptions,
+} from './inspect/Manifest.js';
+export { COMMANDS, type CommandDefinition } from './inspect/commands.js';

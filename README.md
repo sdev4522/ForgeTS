@@ -373,6 +373,34 @@ forge optimize:clear
 
 ---
 
+## Database Migrations
+
+Migration files live in `database/migrations/` and export `up(db)` / `down(db)` (Kysely schema builder):
+
+```bash
+npm run forge make:migration create_posts_table   # scaffold a migration
+npm run forge migrate                             # run pending migrations (one batch)
+npm run forge migrate:status                      # read-only: what has run
+npm run forge migrate:rollback -- --step=1        # revert the latest batch
+npm run forge migrate:fresh -- --seed             # drop everything, re-run, seed
+npm run forge db:seed                             # run database/seeders/DatabaseSeeder.ts
+```
+
+`migrate:rollback`, `migrate:reset`, `migrate:fresh` and `db:seed` refuse to run when `NODE_ENV=production` unless `--force` is passed.
+
+## Application Manifest (for tooling and AI agents)
+
+`forge inspect` describes the whole application in one document: routes (with middleware and params), models (table, columns, relations, fillable/hidden), redacted config, events, migrations, CLI commands, the project conventions, and warnings.
+
+```bash
+npm run forge inspect                   # human-readable summary
+npm run --silent forge inspect -- --json        # full manifest as JSON
+npm run --silent forge inspect routes -- --json # one section
+npm run --silent forge inspect -- --json --db   # include migration run status
+```
+
+Every warning carries a stable `code`, the `file`, and a concrete `fix`, for example `MODEL_SENSITIVE_NOT_HIDDEN`, `MODEL_NO_FILLABLE`, `ROUTE_WEB_WITHOUT_CSRF`, `MIGRATIONS_PENDING`. Secrets never appear in the manifest. Migration commands accept `--json` too and return `{ ok, ... }` or `{ ok: false, error: { code, message, fix } }` with a non-zero exit code.
+
 ## Testing & Building
 
 Run unit and integration tests using Node's built-in test runner:

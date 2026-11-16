@@ -9,6 +9,11 @@ import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
+// Piping into `head` etc. closes stdout early; exit quietly instead of crashing
+process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') process.exit(0);
+});
+
 const args = process.argv.slice(2);
 const command = args[0];
 const targetName = args[1];
@@ -147,6 +152,95 @@ function registerApiRouteController(controllerName: string) {
 
   writeFileSync(apiRoutesPath, content, 'utf-8');
   console.log(`[ForgeTS CLI] Registered ${controllerName} in routes/api.ts`);
+}
+
+// ─── Shared helpers for commands that boot the application ───
+
+const jsonOutput = args.includes('--json');
+const forceFlag = args.includes('--force');
+
+function flagValue(name: string): string | undefined {
+  const prefix = `--${name}=`;
+  const hit = args.find((a) => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : undefined;
+}
+
+/** First positional argument after the command (ignores --flags). */
+const positional = args.slice(1).find((a) => !a.startsWith('--'));
+
+async function bootApp(): Promise<any> {
+  const appModule = await import(pathToFileURL(join(ROOT_DIR, 'bootstrap', 'app.ts')).href);
+  return appModule.default;
+}
+
+async function createMigrator() {
+  const { Migrator, getDatabaseConnection } = await import('@forge/database');
+  return new Migrator(getDatabaseConnection(), {
+    directory: join(ROOT_DIR, 'database', 'migrations'),
+  });
+}
+
+/** Print a command result as JSON (--json) or as human-readable lines. */
+function report(payload: Record<string, unknown>, humanLines: string[]): void {
+  if (jsonOutput) {
+    console.log(JSON.stringify(payload, null, 2));
+  } else {
+    for (const line of humanLines) console.log(line);
+  }
+}
+
+function failCommand(code: string, message: string, fix: string, extra: Record<string, unknown> = {}): void {
+  if (jsonOutput) {
+    console.log(JSON.stringify({ ok: false, error: { code, message, fix, ...extra } }, null, 2));
+  } else {
+    console.error(`[ForgeTS CLI] Error: ${message}`);
+    console.error(`[ForgeTS CLI] Fix:   ${fix}`);
+  }
+  process.exitCode = 1;
+}
+
+/** Destructive commands refuse to run in production without --force. */
+function guardProduction(commandName: string): boolean {
+  if (process.env.NODE_ENV === 'production' && !forceFlag) {
+    failCommand(
+      'ERR_CLI_PRODUCTION_GUARD',
+      `'${commandName}' is destructive and NODE_ENV=production.`,
+      `Re-run with --force if you really intend to run it against production.`,
+    );
+    return false;
+  }
+  return true;
+}
+
+function migrationFailure(action: string, result: { migrations: string[]; failed?: { name: string; error: Error } }): void {
+  const failed = result.failed!;
+  failCommand(
+    'ERR_MIGRATION_FAILED',
+    `Migration '${failed.name}' failed during ${action}: ${failed.error.message}`,
+    `Fix database/migrations/${failed.name}.ts and run the command again. ` +
+      (result.migrations.length > 0
+        ? `Already completed in this run: ${result.migrations.join(', ')}.`
+        : 'No other migration was changed in this run.'),
+    { migration: failed.name, completed: result.migrations },
+  );
+}
+
+async function runSeeder(name: string): Promise<void> {
+  const { getDatabaseConnection } = await import('@forge/database');
+  const seederPath = join(ROOT_DIR, 'database', 'seeders', `${name}.ts`);
+  if (!existsSync(seederPath)) {
+    throw Object.assign(new Error(`Seeder not found: database/seeders/${name}.ts`), {
+      fix: `Create it with \`forge make:seeder ${name}\`.`,
+    });
+  }
+  const mod = await import(pathToFileURL(seederPath).href);
+  const run = mod.default ?? mod.run;
+  if (typeof run !== 'function') {
+    throw Object.assign(new Error(`Seeder ${name} must export a default async function.`), {
+      fix: `Add \`export default async function run(db) { ... }\` to database/seeders/${name}.ts.`,
+    });
+  }
+  await run(getDatabaseConnection());
 }
 
 async function runCommand() {
@@ -641,6 +735,220 @@ export default function ${singularPascal}Page() {
       break;
     }
 
+    case 'inspect': {
+      const app = await bootApp();
+      const { buildManifest } = await import('@forge/core');
+      try {
+        let migrationStatus;
+        if (args.includes('--db')) {
+          migrationStatus = await (await createMigrator()).status();
+        }
+        const manifest: any = await buildManifest(app, { rootDir: ROOT_DIR, migrationStatus });
+
+        if (positional && !(positional in manifest)) {
+          failCommand(
+            'ERR_CLI_UNKNOWN_SECTION',
+            `Unknown manifest section '${positional}'.`,
+            `Use one of: ${Object.keys(manifest).join(', ')}.`,
+          );
+          break;
+        }
+
+        if (jsonOutput) {
+          console.log(JSON.stringify(positional ? manifest[positional] : manifest, null, 2));
+          break;
+        }
+
+        if (positional) {
+          console.log(JSON.stringify(manifest[positional], null, 2));
+          break;
+        }
+
+        console.log(`\n  ${manifest.app.name} — ForgeTS v${manifest.framework.version} on ${manifest.framework.runtime}`);
+        console.log(`  Environment: ${manifest.app.environment} (debug ${manifest.app.debug ? 'on' : 'off'})\n`);
+        console.log(`  Routes (${manifest.routes.length})`);
+        for (const r of manifest.routes) {
+          console.log(`    ${r.type.padEnd(3)} ${r.method.padEnd(6)} ${r.path.padEnd(28)} ${r.controller}@${r.action}`);
+        }
+        console.log(`\n  Models (${manifest.models.length})`);
+        for (const m of manifest.models) {
+          console.log(`    ${m.name.padEnd(18)} table=${m.table} fillable=${m.fillable ? `[${m.fillable.join(', ')}]` : m.massAssignment} hidden=[${m.hidden.join(', ')}]`);
+        }
+        console.log(`\n  Migrations: ${manifest.migrations.files.length} file(s)` +
+          (manifest.migrations.pending ? `, ${manifest.migrations.pending.length} pending` : ' (add --db for run status)'));
+        console.log(`  Events: ${manifest.events.length}   Global middleware: ${manifest.middleware.global.length}`);
+        console.log(`\n  Warnings (${manifest.warnings.length})`);
+        for (const w of manifest.warnings) {
+          console.log(`    [${w.severity}] ${w.code}: ${w.message}`);
+          console.log(`      fix: ${w.fix}`);
+        }
+        console.log('\n  Full machine-readable output: forge inspect --json\n');
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'migrate': {
+      const app = await bootApp();
+      try {
+        const result = await (await createMigrator()).up();
+        if (result.failed) {
+          migrationFailure('migrate', result);
+          break;
+        }
+        report(
+          { ok: true, action: 'migrate', batch: result.batch, migrated: result.migrations },
+          result.migrations.length === 0
+            ? ['[ForgeTS CLI] Nothing to migrate.']
+            : [...result.migrations.map((m) => `[ForgeTS CLI] Migrated:  ${m}`), `[ForgeTS CLI] Batch ${result.batch} complete.`],
+        );
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'migrate:status': {
+      const app = await bootApp();
+      try {
+        const status = await (await createMigrator()).status();
+        report(
+          { ok: true, action: 'migrate:status', migrations: status, pending: status.filter((s) => !s.ran).map((s) => s.name) },
+          status.length === 0
+            ? ['[ForgeTS CLI] No migrations found in database/migrations.']
+            : [
+                '',
+                '  Ran?  Batch  Migration',
+                ...status.map((s) => `  ${s.ran ? 'yes ' : 'no  '}  ${String(s.batch ?? '-').padEnd(5)}  ${s.name}${s.missing ? '  (file missing)' : ''}`),
+                '',
+              ],
+        );
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'migrate:rollback': {
+      if (!guardProduction('migrate:rollback')) break;
+      const steps = Number(flagValue('step') ?? 1);
+      if (!Number.isInteger(steps) || steps < 1) {
+        failCommand('ERR_CLI_INVALID_OPTION', `--step must be a positive integer.`, 'Example: forge migrate:rollback --step=2');
+        break;
+      }
+      const app = await bootApp();
+      try {
+        const result = await (await createMigrator()).rollback(steps);
+        if (result.failed) {
+          migrationFailure('rollback', result);
+          break;
+        }
+        report(
+          { ok: true, action: 'migrate:rollback', rolledBack: result.migrations },
+          result.migrations.length === 0
+            ? ['[ForgeTS CLI] Nothing to roll back.']
+            : result.migrations.map((m) => `[ForgeTS CLI] Rolled back: ${m}`),
+        );
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'migrate:reset': {
+      if (!guardProduction('migrate:reset')) break;
+      const app = await bootApp();
+      try {
+        const result = await (await createMigrator()).reset();
+        if (result.failed) {
+          migrationFailure('reset', result);
+          break;
+        }
+        report(
+          { ok: true, action: 'migrate:reset', rolledBack: result.migrations },
+          result.migrations.length === 0
+            ? ['[ForgeTS CLI] Nothing to reset.']
+            : result.migrations.map((m) => `[ForgeTS CLI] Rolled back: ${m}`),
+        );
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'migrate:fresh': {
+      if (!guardProduction('migrate:fresh')) break;
+      const app = await bootApp();
+      try {
+        const result = await (await createMigrator()).fresh();
+        if (result.failed) {
+          migrationFailure('fresh', result);
+          break;
+        }
+        let seeded = false;
+        if (args.includes('--seed')) {
+          await runSeeder('DatabaseSeeder');
+          seeded = true;
+        }
+        report(
+          { ok: true, action: 'migrate:fresh', migrated: result.migrations, seeded },
+          [
+            '[ForgeTS CLI] Dropped all tables.',
+            ...result.migrations.map((m) => `[ForgeTS CLI] Migrated:  ${m}`),
+            ...(seeded ? ['[ForgeTS CLI] Database seeded.'] : []),
+          ],
+        );
+      } catch (err: any) {
+        failCommand('ERR_CLI_COMMAND_FAILED', err?.message ?? String(err), err?.fix ?? 'See the error message above.');
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'db:seed': {
+      if (!guardProduction('db:seed')) break;
+      const seederName = positional ?? 'DatabaseSeeder';
+      if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(seederName)) {
+        failCommand('ERR_CLI_INVALID_NAME', `Invalid seeder name '${seederName}'.`, 'Use a class-style name such as UserSeeder.');
+        break;
+      }
+      const app = await bootApp();
+      try {
+        await runSeeder(seederName);
+        report({ ok: true, action: 'db:seed', seeder: seederName }, [`[ForgeTS CLI] Seeded: ${seederName}`]);
+      } catch (err: any) {
+        failCommand('ERR_SEEDER_FAILED', err?.message ?? String(err), err?.fix ?? `Fix database/seeders/${seederName}.ts and run again.`);
+      } finally {
+        await app.stop();
+      }
+      break;
+    }
+
+    case 'make:seeder': {
+      if (!targetName) {
+        console.error('[ForgeTS CLI] Error: Usage: forge make:seeder <SeederName>');
+        process.exit(1);
+      }
+      const seederClass = toPascalCase(targetName).endsWith('Seeder')
+        ? toPascalCase(targetName)
+        : `${toPascalCase(targetName)}Seeder`;
+      const seederPath = join(ROOT_DIR, 'database', 'seeders', `${seederClass}.ts`);
+      const seederTemplate = `import type { Kysely } from 'kysely';
+
+/**
+ * ${seederClass}
+ * Run with: forge db:seed ${seederClass}
+ */
+export default async function run(db: Kysely<any>): Promise<void> {
+  // await db.insertInto('table').values({ ... }).execute();
+}
+`;
+      createFile(seederPath, seederTemplate, 'Seeder');
+      break;
+    }
+
     case 'routes:list': {
       const appModule = await import(pathToFileURL(join(ROOT_DIR, 'bootstrap', 'app.ts')).href);
       const app = appModule.default;
@@ -708,22 +1016,17 @@ export default function ${singularPascal}Page() {
     }
 
     default: {
-      console.log(`
-ForgeTS CLI Scaffolding Tool v0.8.0
-
-Available Commands:
-  forge serve                            Start dev server with auto-restart
-  forge make:controller <ControllerName> Scaffold an HTTP controller [--api]
-  forge make:model <ModelName>           Scaffold an Active Record model [--migration]
-  forge make:page <PageName> [--crud]    Scaffold React page(s) + full CRUD flow
-  forge make:service <ServiceName>       Scaffold an @Injectable() business service
-  forge make:middleware <Name>           Scaffold an HTTP middleware
-  forge make:migration <name>            Scaffold a database migration file
-  forge routes:list                      Display all registered routes
-  forge cache:clear                      Clear application cache
-  forge config:clear                     Clear configuration cache
-  forge optimize:clear                   Clear all cached files (config, routes, views)
-`);
+      const { COMMANDS } = await import('@forge/core');
+      const width = Math.max(...COMMANDS.map((c) => c.usage.length)) + 2;
+      console.log(`\nForgeTS CLI v0.8.0\n\nAvailable Commands:`);
+      for (const c of COMMANDS) {
+        console.log(`  ${c.usage.padEnd(width)}${c.description}`);
+      }
+      console.log('\nAdd --json to inspect / migrate commands for machine-readable output.\n');
+      if (command && command !== 'help' && command !== '--help' && command !== '-h') {
+        console.error(`[ForgeTS CLI] Unknown command: ${command}`);
+        process.exitCode = 1;
+      }
       break;
     }
   }
