@@ -217,39 +217,128 @@ export class Request {
     return this._rawRequest.text();
   }
 
+  // ─── Input ───
+
+  /**
+   * All input: query string merged with the parsed body (body wins on conflict).
+   */
+  all(): Record<string, any> {
+    const body = this._body;
+    const bodyInput =
+      body !== null && typeof body === 'object' && !Array.isArray(body)
+        ? (body as Record<string, any>)
+        : {};
+    return { ...this.query, ...bodyInput };
+  }
+
+  /**
+   * One input value from the body or query string, with an optional default.
+   * Supports dot notation for nested values: `req.input('address.city')`.
+   */
+  input<T = any>(key: string, defaultValue?: T): T {
+    let current: any = this.all();
+    for (const part of key.split('.')) {
+      if (current === null || typeof current !== 'object' || !Object.hasOwn(current, part)) {
+        return defaultValue as T;
+      }
+      current = current[part];
+    }
+    return (current === undefined ? defaultValue : current) as T;
+  }
+
+  /** Only the listed input keys (missing keys are omitted). */
+  only(...keys: Array<string | string[]>): Record<string, any> {
+    const all = this.all();
+    const out: Record<string, any> = {};
+    for (const key of keys.flat()) {
+      if (Object.hasOwn(all, key)) out[key] = all[key];
+    }
+    return out;
+  }
+
+  /** All input except the listed keys. */
+  except(...keys: Array<string | string[]>): Record<string, any> {
+    const skip = new Set(keys.flat());
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(this.all())) {
+      if (!skip.has(key)) out[key] = value;
+    }
+    return out;
+  }
+
+  /** True when the input key is present (even if empty). */
+  has(key: string): boolean {
+    return this.input<any>(key) !== undefined;
+  }
+
+  /** True when the input key is present and not empty. */
+  filled(key: string): boolean {
+    const value = this.input<any>(key);
+    return value !== undefined && value !== null && value !== '';
+  }
+
+  /** Input as a boolean: true for true, 1, "1", "true", "on", "yes". */
+  boolean(key: string, defaultValue = false): boolean {
+    const value = this.input<any>(key);
+    if (value === undefined || value === null || value === '') return defaultValue;
+    if (typeof value === 'boolean') return value;
+    return ['1', 'true', 'on', 'yes'].includes(String(value).trim().toLowerCase());
+  }
+
+  /** Input as an integer, or the default when missing / not a whole number. */
+  integer(key: string, defaultValue = 0): number {
+    const value = this.input<any>(key);
+    if (typeof value === 'number') return Number.isInteger(value) ? value : defaultValue;
+    if (typeof value !== 'string' || !/^-?\d+$/.test(value.trim())) return defaultValue;
+    return Number(value.trim());
+  }
+
+  /** An uploaded file from a multipart form, or null. */
+  file(key: string): File | null {
+    const value = this.input<any>(key);
+    const candidate = Array.isArray(value) ? value[0] : value;
+    return typeof File !== 'undefined' && candidate instanceof File ? candidate : null;
+  }
+
   // ─── Validation ───
 
   /**
-   * Validate the request body against pipe-separated rules (or Zod schema).
-   * Throws `ValidationError` (422) if validation fails.
+   * Validate request input (body + query string) against pipe-separated rules
+   * (or a Zod schema). Throws `ValidationError` (422) if validation fails.
    * Returns ONLY the validated fields.
    *
    * @example
    * ```ts
    * const data = await req.validate({
    *   email: 'required|email',
-   *   password: 'required|min:8',
+   *   password: 'required|min:8|confirmed',
+   *   role: 'in:admin,editor',
    *   age: 'numeric|min:18',
+   * }, {
+   *   'email.required': 'We need your email address.',
    * });
    * ```
    */
-  async validate<T = Record<string, any>>(rules: Record<string, string> | ZodSchema<T>): Promise<T> {
-    let body = this.body();
-    if (body === undefined || body === null) {
+  async validate<T = Record<string, any>>(
+    rules: Record<string, string | string[]> | ZodSchema<T>,
+    messages: Record<string, string> = {},
+  ): Promise<T> {
+    if (!this._bodyParsed && this.isJson()) {
       try {
-        body = await this.json();
+        await this.json();
       } catch {
-        body = {};
+        this._body = {};
       }
     }
+    const input = this.all();
 
     if (typeof rules === 'object' && rules !== null && !('safeParse' in rules)) {
-      return Validator.validate<T>(body, rules as Record<string, string>);
+      return Validator.validate<T>(input, rules as Record<string, string | string[]>, messages);
     }
 
-    // Zod schema fallback
+    // Zod schema
     const schema = rules as ZodSchema<T>;
-    const result = schema.safeParse(body);
+    const result = schema.safeParse(input);
     if (!result.success) {
       throw new ValidationException(result.error);
     }

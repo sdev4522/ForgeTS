@@ -373,6 +373,31 @@ forge optimize:clear
 
 ---
 
+## The Short Syntax
+
+Handlers return what should be sent — no response object to thread through:
+
+```ts
+import { Router, view, created, redirect, abort, type Request } from '@forge/core';
+import { Post } from '@/models/Post.js';
+
+const router = new Router();
+
+router.view('/about', 'about');                       // a page with no controller
+router.get('/posts', () => Post.latest().paginate(20)); // objects, arrays and models become JSON
+router.get('/posts/:id', async (req: Request) => (await Post.find(req.params.id)) ?? abort(404));
+router.post('/posts', async (req: Request) =>
+  created(await Post.create(await req.validate({ title: 'required|min:3', status: 'in:draft,live' }))));
+router.resource('/comments', CommentController);      // index/show/store/update/destroy in one line
+```
+
+- **Return values:** object / array / model → JSON, string → plain text, `null` → 204, or a helper: `view()`, `json()`, `created()`, `noContent()`, `redirect()`, `back()`.
+- **Stop early:** `abort(404)`, `abortIf(cond, 403)`, `abortUnless(user, 401)`.
+- **Input:** `req.input('page', 1)`, `req.only('title', 'body')`, `req.except(...)`, `req.all()`, `req.has()`, `req.boolean()`, `req.integer()`, `req.file()`.
+- **Validation rules:** `required`, `nullable`, `bail`, `string`, `numeric`, `integer`, `boolean`, `array`, `email`, `url`, `uuid`, `date`, `alpha`, `alpha_num`, `min`, `max`, `between`, `size`, `in`, `not_in`, `confirmed`, `same`, `different`, `regex`. Custom messages go in a second argument (`{ 'email.required': '…' }`); add your own rule with `Validator.extend()`. A misspelled rule throws instead of being silently ignored.
+- **Middleware** can be a plain function: `const auth = async (req, next) => req.bearerToken() ? next() : json({ error: 'Unauthorized' }, 401);`
+- **Models:** `Post.find(id)`, `findBy('slug', s)`, `where(...)`, `whereIn(...)`, `orderBy(...)`, `latest()`, `count()`, `paginate(perPage, page)`, `firstOrCreate()`, `updateOrCreate()`, `destroy(id)`; on a query: `.pluck()`, `.exists()`, `.update({...})`, `.delete()`; on an instance: `.update()`, `.refresh()`, `.delete()`. Columns can be declared without decorators: `declare title: string;`.
+
 ## Database Migrations
 
 Migration files live in `database/migrations/` and export `up(db)` / `down(db)` (Kysely schema builder):

@@ -41,3 +41,23 @@ export interface Middleware {
  * Used in `@Middleware(AuthMiddleware)` decorator.
  */
 export type MiddlewareClass = new (...args: any[]) => Middleware;
+
+/**
+ * Function middleware — the shortest form.
+ *
+ * @example
+ * ```ts
+ * const auth: MiddlewareHandler = async (req, next) => {
+ *   if (!req.bearerToken()) return json({ error: 'Unauthorized' }, 401);
+ *   return next();
+ * };
+ * router.get('/me', showMe, [auth]);
+ * ```
+ */
+export type MiddlewareHandler = (
+  req: Request,
+  next: NextFunction,
+) => Promise<ForgeResponse> | ForgeResponse;
+
+/** Anything accepted where middleware is expected: a class or a plain function. */
+export type MiddlewareLike = MiddlewareClass | MiddlewareHandler;

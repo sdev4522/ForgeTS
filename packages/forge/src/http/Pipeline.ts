@@ -10,7 +10,7 @@
 
 import type { Request } from './Request.js';
 import type { ForgeResponse } from './Response.js';
-import type { Middleware, MiddlewareClass, NextFunction } from './Middleware.js';
+import type { Middleware, MiddlewareClass, MiddlewareHandler, MiddlewareLike, NextFunction } from './Middleware.js';
 import type { Container } from '../container/Container.js';
 
 /**
@@ -32,7 +32,7 @@ export type FinalHandler = (req: Request) => Promise<ForgeResponse>;
  * This means the chain is a stack of closures — no iteration, no array access.
  */
 export async function executePipeline(
-  middlewareClasses: MiddlewareClass[],
+  middlewareClasses: MiddlewareLike[],
   container: Container,
   req: Request,
   finalHandler: FinalHandler,
@@ -45,12 +45,15 @@ export async function executePipeline(
     const MiddlewareCls = middlewareClasses[i];
     const currentNext = next; // Capture current next in closure
 
-    // Resolve middleware from container (supports DI in middleware)
-    const middleware: Middleware = container.has(MiddlewareCls)
-      ? container.resolve(MiddlewareCls)
-      : new MiddlewareCls();
-
-    next = () => middleware.handle(req, currentNext);
+    // Class middleware (has a prototype handle()) is resolved from the container
+    // so it can use DI; anything else is a plain function middleware.
+    if (typeof (MiddlewareCls as any).prototype?.handle === 'function') {
+      const middleware: Middleware = container.resolve(MiddlewareCls as MiddlewareClass);
+      next = async () => middleware.handle(req, currentNext);
+    } else {
+      const handler = MiddlewareCls as MiddlewareHandler;
+      next = async () => handler(req, currentNext);
+    }
   }
 
   // Execute the chain

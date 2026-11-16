@@ -49,6 +49,7 @@ import {
   ViewNotFoundException,
 } from '../errors/index.js';
 import { executePipeline } from '../http/Pipeline.js';
+import { runWithRequestContext } from '../helpers.js';
 import { initConfig, getConfigManager, type ConfigManager } from '../config/ConfigManager.js';
 import { env } from '../config/env.js';
 import { ViewEngine } from '../view/ViewEngine.js';
@@ -57,7 +58,7 @@ import { getTimezone } from './time.js';
 import { verifyDatabaseConnectionOnBoot, closeDatabaseConnections } from '../database/Connection.js';
 import { EventDispatcher, setEventDispatcher } from '../events/EventDispatcher.js';
 import type { HttpMethod } from '../routing/decorators.js';
-import type { MiddlewareClass } from '../http/Middleware.js';
+import type { MiddlewareLike } from '../http/Middleware.js';
 
 // ─── Provider Interface ───
 
@@ -77,7 +78,7 @@ export class Application {
   private viewEngine: ViewEngine;
   private reactEngine: ReactEngine;
   private providers: Provider[] = [];
-  private globalMiddleware: MiddlewareClass[] = [];
+  private globalMiddleware: MiddlewareLike[] = [];
   private booted = false;
   private server: NodeServerHandle | null = null;
 
@@ -141,7 +142,7 @@ export class Application {
    * app.use(CorsMiddleware, BodyParserMiddleware);
    * ```
    */
-  use(...middleware: MiddlewareClass[]): this {
+  use(...middleware: MiddlewareLike[]): this {
     this.globalMiddleware.push(...middleware);
     return this;
   }
@@ -153,7 +154,7 @@ export class Application {
    */
   registerRoutes(
     router: Router,
-    options?: { prefix?: string; middleware?: MiddlewareClass[]; type?: 'web' | 'api' } | string,
+    options?: { prefix?: string; middleware?: MiddlewareLike[]; type?: 'web' | 'api' } | string,
   ): this {
     const opts = typeof options === 'string' ? { prefix: options } : (options ?? {});
     const prefix = opts.prefix ? this.normalizePath(opts.prefix) : '';
@@ -559,6 +560,16 @@ export class Application {
         // 5. Build the middleware pipeline and execute
         const allMiddleware = [...this.globalMiddleware, ...route.middleware];
 
+        const currentReq = req;
+        // Responses built for this request know its view engines and CSRF token
+        const makeResponse = (): ForgeResponse => {
+          const res = new ForgeResponse(this.viewEngine, this.reactEngine);
+          if ((currentReq as any)._csrfToken) {
+            (res as any)._csrfToken = (currentReq as any)._csrfToken;
+          }
+          return res;
+        };
+
         const finalHandler = async (_req: Request): Promise<ForgeResponse> => {
           const handler = (controller as any)[route.handlerName];
           if (typeof handler !== 'function') {
@@ -567,10 +578,7 @@ export class Application {
             );
           }
 
-          const response = new ForgeResponse(this.viewEngine, this.reactEngine);
-          if ((_req as any)._csrfToken) {
-            (response as any)._csrfToken = (_req as any)._csrfToken;
-          }
+          const response = makeResponse();
           const result = await handler.call(controller, _req, response);
 
           // If the handler returned a ForgeResponse, use it.
@@ -582,17 +590,23 @@ export class Application {
           if (result instanceof globalThis.Response) {
             return ForgeResponse.fromNative(result);
           }
+          if (typeof result === 'string') {
+            // Plain text, never HTML: a handler echoing user input must not become XSS
+            return new ForgeResponse().text(result);
+          }
+          if (result === null) {
+            return new ForgeResponse().noContent();
+          }
           if (result !== undefined) {
             return new ForgeResponse().json(result);
           }
           return response;
         };
 
-        const response = await executePipeline(
-          allMiddleware,
-          this.container,
-          req,
-          finalHandler,
+        // Run the pipeline inside the request context so helpers such as
+        // view(), request() and back() can find the current request.
+        const response = await runWithRequestContext({ request: req, makeResponse }, () =>
+          executePipeline(allMiddleware, this.container, currentReq, finalHandler),
         );
 
         return response.toNativeResponse();
@@ -716,7 +730,7 @@ export class Application {
   }
 
   /** Middleware registered with app.use(), in execution order. */
-  getGlobalMiddleware(): readonly MiddlewareClass[] {
+  getGlobalMiddleware(): readonly MiddlewareLike[] {
     return this.globalMiddleware;
   }
 

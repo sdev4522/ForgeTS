@@ -9,6 +9,18 @@ import { getDatabaseConnection, getMongoDriver } from './Connection.js';
 import { MODEL_RELATIONS, type RelationDefinition } from './decorators.js';
 import { serializeDatabaseValue } from './serializer.js';
 import { ModelNotFoundException } from '../errors/index.js';
+import { sql } from 'kysely';
+
+/** One page of results. */
+export interface Paginated<T> {
+  data: T[];
+  total: number;
+  perPage: number;
+  currentPage: number;
+  lastPage: number;
+  from: number | null;
+  to: number | null;
+}
 
 function isOperatorObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -54,6 +66,14 @@ export class QueryBuilder<M extends typeof Model> {
   private mongoLimit: number | undefined = undefined;
   private mongoOffset: number | undefined = undefined;
   private eagerRelations: string[] = [];
+  /** SQL conditions, replayed onto UPDATE / DELETE statements. */
+  private sqlConditions: Array<(qb: any) => any> = [];
+
+  /** Add a SQL condition to the SELECT and remember it for bulk update/delete. */
+  private addSqlCondition(apply: (qb: any) => any): void {
+    this.sqlConditions.push(apply);
+    this.sqlQuery = apply(this.sqlQuery);
+  }
 
   constructor(private modelClass: M) {
     if (!this.isMongo()) {
@@ -110,10 +130,10 @@ export class QueryBuilder<M extends typeof Model> {
       const driver = (this.modelClass as any).connection || 'mysql';
       if (arguments.length < 3) {
         const serialized = serializeDatabaseValue(opOrValue, driver);
-        this.sqlQuery = this.sqlQuery.where(column, '=', serialized);
+        this.addSqlCondition((qb) => qb.where(column, '=', serialized));
       } else {
         const serialized = serializeDatabaseValue(value, driver);
-        this.sqlQuery = this.sqlQuery.where(column, opOrValue as any, serialized);
+        this.addSqlCondition((qb) => qb.where(column, opOrValue as any, serialized));
       }
     }
     return this;
@@ -132,18 +152,99 @@ export class QueryBuilder<M extends typeof Model> {
       const driver = (this.modelClass as any).connection || 'mysql';
       const min = serializeDatabaseValue(range[0], driver);
       const max = serializeDatabaseValue(range[1], driver);
-      this.sqlQuery = this.sqlQuery.where(column, '>=', min).where(column, '<=', max);
+      this.addSqlCondition((qb) => qb.where(column, '>=', min).where(column, '<=', max));
     }
     return this;
   }
 
+  /** Match any of the given values. An empty list matches nothing. */
+  whereIn(column: string, values: readonly unknown[]): this {
+    return this.addListCondition(column, values, false);
+  }
+
+  /** Match none of the given values. An empty list matches everything. */
+  whereNotIn(column: string, values: readonly unknown[]): this {
+    return this.addListCondition(column, values, true);
+  }
+
+  private addListCondition(column: string, values: readonly unknown[], negate: boolean): this {
+    if (!Array.isArray(values)) {
+      throw new TypeError(`[ForgeTS] whereIn('${column}', …) expects an array of values.`);
+    }
+    if (this.isMongo()) {
+      for (const value of values) assertSafeMongoValue(column, value);
+      const isId = column === this.modelClass.getPrimaryKey() || column === '_id';
+      const list = values.map((v) => {
+        const serialized = serializeDatabaseValue(v, 'mongodb');
+        return isId ? getMongoDriver().toDocumentId(serialized as any) : serialized;
+      });
+      const field = isId ? '_id' : column;
+      const existing = this.mongoWhere[field];
+      const base = isOperatorObject(existing) ? existing : {};
+      this.mongoWhere[field] = { ...base, [negate ? '$nin' : '$in']: list };
+    } else {
+      const driver = (this.modelClass as any).connection || 'mysql';
+      const list = values.map((v) => serializeDatabaseValue(v, driver));
+      if (list.length === 0) {
+        // `IN ()` is invalid SQL: express "nothing" / "everything" directly
+        this.addSqlCondition((qb) => qb.where(sql<boolean>`${sql.lit(negate ? 1 : 0)} = 1`));
+      } else {
+        this.addSqlCondition((qb) => qb.where(column, negate ? 'not in' : 'in', list));
+      }
+    }
+    return this;
+  }
+
+  whereNull(column: string): this {
+    if (this.isMongo()) {
+      this.mongoWhere[column] = null;
+    } else {
+      this.addSqlCondition((qb) => qb.where(column, 'is', null));
+    }
+    return this;
+  }
+
+  whereNotNull(column: string): this {
+    if (this.isMongo()) {
+      const existing = this.mongoWhere[column];
+      const base = isOperatorObject(existing) ? existing : {};
+      this.mongoWhere[column] = { ...base, $ne: null };
+    } else {
+      this.addSqlCondition((qb) => qb.where(column, 'is not', null));
+    }
+    return this;
+  }
+
+  /** Newest first (by created_at unless another column is given). */
+  latest(column = 'created_at'): this {
+    return this.orderBy(column, 'desc');
+  }
+
+  /** Oldest first (by created_at unless another column is given). */
+  oldest(column = 'created_at'): this {
+    return this.orderBy(column, 'asc');
+  }
+
   orderBy(column: string, direction: 'asc' | 'desc' = 'asc'): this {
+    if (direction !== 'asc' && direction !== 'desc') {
+      throw new TypeError(`[ForgeTS] orderBy direction must be 'asc' or 'desc'.`);
+    }
     if (this.isMongo()) {
       this.mongoOrderBy = { column, direction };
     } else {
       this.sqlQuery = this.sqlQuery.orderBy(column, direction);
     }
     return this;
+  }
+
+  /** Alias for limit(). */
+  take(count: number): this {
+    return this.limit(count);
+  }
+
+  /** Alias for offset(). */
+  skip(count: number): this {
+    return this.offset(count);
   }
 
   limit(count: number): this {
@@ -208,6 +309,109 @@ export class QueryBuilder<M extends typeof Model> {
   async first(): Promise<InstanceType<M> | null> {
     const instance = (await this.limit(1).get())[0] ?? null;
     return instance;
+  }
+
+  /** Number of matching records (ignores limit / offset / ordering). */
+  async count(): Promise<number> {
+    if (this.isMongo()) {
+      const driver: any = getMongoDriver();
+      const table = this.modelClass.getTable();
+      if (typeof driver.count === 'function') {
+        return driver.count(table, this.mongoWhere);
+      }
+      return (await driver.findMany(table, { where: this.mongoWhere })).length;
+    }
+
+    const row = await this.sqlQuery
+      .clearSelect()
+      .clearOrderBy()
+      .clearLimit()
+      .clearOffset()
+      .select((eb: any) => eb.fn.countAll().as('aggregate'))
+      .executeTakeFirst();
+    return Number(row?.aggregate ?? 0);
+  }
+
+  /** True when at least one record matches. */
+  async exists(): Promise<boolean> {
+    return (await this.count()) > 0;
+  }
+
+  /** Values of a single column for every matching record. */
+  async pluck<T = any>(column: string): Promise<T[]> {
+    return (await this.get()).map((instance) => (instance as any)[column] as T);
+  }
+
+  /**
+   * One page of results plus the totals needed to render pagination.
+   *
+   * @example
+   * ```ts
+   * const page = await User.query().latest().paginate(20, req.integer('page', 1));
+   * // { data, total, perPage, currentPage, lastPage, from, to }
+   * ```
+   */
+  async paginate(perPage = 15, page = 1): Promise<Paginated<InstanceType<M>>> {
+    const size = Math.min(Math.max(1, Math.trunc(perPage) || 15), 1000);
+    const current = Math.max(1, Math.trunc(page) || 1);
+
+    const total = await this.count();
+    const data = await this.limit(size).offset((current - 1) * size).get();
+    const lastPage = Math.max(1, Math.ceil(total / size));
+
+    return {
+      data,
+      total,
+      perPage: size,
+      currentPage: current,
+      lastPage,
+      from: data.length > 0 ? (current - 1) * size + 1 : null,
+      to: data.length > 0 ? (current - 1) * size + data.length : null,
+    };
+  }
+
+  /**
+   * Update every matching record. Returns the number of affected rows.
+   * Refuses to run without a where condition; use Model.query().updateAll() intent explicitly.
+   */
+  async update(values: Record<string, any>): Promise<number> {
+    this.assertBulkAllowed('update');
+    const driver = (this.modelClass as any).connection || 'mysql';
+    const data: Record<string, any> = {};
+    for (const [key, val] of Object.entries(values)) {
+      if (val !== undefined) data[key] = serializeDatabaseValue(val, driver);
+    }
+    if ((this.modelClass as any).timestamps && data['updated_at'] === undefined) {
+      data['updated_at'] = serializeDatabaseValue(new Date(), driver);
+    }
+    if (Object.keys(data).length === 0) return 0;
+
+    let statement: any = getDatabaseConnection().updateTable(this.modelClass.getTable()).set(data);
+    for (const apply of this.sqlConditions) statement = apply(statement);
+    const result = await statement.executeTakeFirst();
+    return Number(result?.numUpdatedRows ?? result?.numChangedRows ?? 0);
+  }
+
+  /** Delete every matching record. Returns the number of deleted rows. */
+  async delete(): Promise<number> {
+    this.assertBulkAllowed('delete');
+    let statement: any = getDatabaseConnection().deleteFrom(this.modelClass.getTable());
+    for (const apply of this.sqlConditions) statement = apply(statement);
+    const result = await statement.executeTakeFirst();
+    return Number(result?.numDeletedRows ?? 0);
+  }
+
+  private assertBulkAllowed(action: 'update' | 'delete'): void {
+    if (this.isMongo()) {
+      throw new Error(
+        `[ForgeTS] Bulk ${action}() is not supported for MongoDB models yet. Load the records and ${action} them individually.`,
+      );
+    }
+    if (this.sqlConditions.length === 0) {
+      throw new Error(
+        `[ForgeTS] Refusing to ${action} every row of '${this.modelClass.getTable()}': add a where() condition first.`,
+      );
+    }
   }
 
   /**

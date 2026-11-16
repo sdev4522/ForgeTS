@@ -130,6 +130,12 @@ export class MongoDriver implements DatabaseDriver {
     return docs.map((d) => this.normalizeDoc(d));
   }
 
+  /** Count documents matching a filter. */
+  async count(collectionName: string, where: Record<string, any> = {}): Promise<number> {
+    await this.connect();
+    return this.getDb().collection(collectionName).countDocuments(where);
+  }
+
   async create(collectionName: string, data: Record<string, any>): Promise<any> {
     await this.connect();
     const toInsert = { ...data };

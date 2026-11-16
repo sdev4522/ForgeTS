@@ -8,7 +8,7 @@
 // Zero runtime overhead per request.
 // ─────────────────────────────────────────────────────────────────────
 
-import type { MiddlewareClass } from '../http/Middleware.js';
+import type { MiddlewareLike } from '../http/Middleware.js';
 
 // ─── Symbols ───
 // Using symbols ensures our metadata never collides with user metadata.
@@ -139,26 +139,26 @@ export const Options = createMethodDecorator('OPTIONS');
  * async store(req, res) { ... }
  * ```
  */
-export function Middleware(...middleware: MiddlewareClass[]) {
+export function Middleware(...middleware: MiddlewareLike[]) {
   // Return a decorator that works on both classes and methods
   return function (_target: any, context: ClassDecoratorContext | ClassMethodDecoratorContext) {
     if (context.kind === 'class') {
       // Class-level middleware
-      const existing = getOrCreateArray<MiddlewareClass>(context.metadata, MIDDLEWARE_META);
+      const existing = getOrCreateArray<MiddlewareLike>(context.metadata, MIDDLEWARE_META);
       existing.push(...middleware);
     } else if (context.kind === 'method') {
       // Method-level middleware — keyed by method name
       if (!Object.hasOwn(context.metadata, METHOD_MIDDLEWARE_META)) {
         const inherited = context.metadata[METHOD_MIDDLEWARE_META] as
-          | Record<string | symbol, MiddlewareClass[]>
+          | Record<string | symbol, MiddlewareLike[]>
           | undefined;
-        const own: Record<string | symbol, MiddlewareClass[]> = {};
+        const own: Record<string | symbol, MiddlewareLike[]> = {};
         if (inherited) {
           for (const k of Reflect.ownKeys(inherited)) own[k] = [...inherited[k]];
         }
         context.metadata[METHOD_MIDDLEWARE_META] = own;
       }
-      const map = context.metadata[METHOD_MIDDLEWARE_META] as Record<string | symbol, MiddlewareClass[]>;
+      const map = context.metadata[METHOD_MIDDLEWARE_META] as Record<string | symbol, MiddlewareLike[]>;
       const key = context.name;
       if (!Object.hasOwn(map, key)) {
         map[key] = [];

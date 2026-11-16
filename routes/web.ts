@@ -10,6 +10,11 @@ import { WelcomeController } from '@/controllers/WelcomeController.js';
 const router = new Router();
 
 router.middleware(CsrfMiddleware);
+
+// Pages that need no controller
+router.view('/about', 'abouts/index');
+router.view('/user', 'user/index');
+
 router.controller(WelcomeController);
 
 export default router;

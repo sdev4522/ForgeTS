@@ -20,6 +20,7 @@ import { Model } from '../database/Model.js';
 import { MODEL_COLUMNS, MODEL_RELATIONS, type RelationDefinition } from '../database/decorators.js';
 import type { MigrationStatus } from '../database/Migrator.js';
 import { COMMANDS, type CommandDefinition } from './commands.js';
+import { Validator } from '../http/Validator.js';
 
 export const MANIFEST_VERSION = 1;
 
@@ -371,8 +372,11 @@ export async function buildManifest(
       rules: [
         'Import paths use the .js extension even though sources are .ts.',
         'Web routes go in routes/web.ts (CSRF protected); stateless JSON routes go in routes/api.ts (served under /api).',
-        'Controllers are classes decorated with @Controller(prefix) and @Get/@Post/@Put/@Patch/@Delete, registered with router.controller(Class).',
-        'Validate input with `await req.validate({...})` before using it; never pass req.body() straight into Model.create().',
+        'Controllers are classes decorated with @Controller(prefix) and @Get/@Post/@Put/@Patch/@Delete, registered with router.controller(Class). For plain REST, use an undecorated class with index/show/store/update/destroy and router.resource(path, Class) (router.apiResource for JSON APIs).',
+        'Handlers return what should be sent: an object/array/model (JSON), a string (plain text), null (204), or a helper result: view(), json(), created(), redirect(), back(). Use abort(404) to stop with an HTTP error.',
+        'Read input with req.input(key, default), req.only(...), req.all(); pages without logic use router.view(path, page).',
+        'Validate input with `await req.validate({ field: "required|email|max:255" })` before using it; never pass req.all() or req.body() straight into Model.create(). Available rules: ' + Validator.rules().join(', ') + '.',
+        'Query models with Model.find/findBy/where/whereIn/orderBy/latest/paginate/count; write with Model.create, instance.update, Model.firstOrCreate, Model.updateOrCreate, Model.destroy.',
         "Models declare `static override fillable` for mass-assignable attributes and `static override hidden` for attributes kept out of JSON.",
         'Hash passwords with `await Hash.make(password)`; verify with `Hash.verify(plain, hash)`.',
         'Schema changes go in a new migration (`forge make:migration`), then `forge migrate`. Never edit a migration that has already run.',

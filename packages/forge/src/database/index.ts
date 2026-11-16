@@ -5,7 +5,7 @@ import '../polyfills.js';
 // ─────────────────────────────────────────────────────────────────────
 
 export { Model } from './Model.js';
-export { QueryBuilder } from './QueryBuilder.js';
+export { QueryBuilder, type Paginated } from './QueryBuilder.js';
 export { getDatabaseConnection, setDatabaseConnection, getMongoDriver, setMongoDriver, resetDatabaseConnection, closeDatabaseConnections } from './Connection.js';
 export { MongoDriver } from './MongoDriver.js';
 export type { DatabaseDriver, FindOptions } from './DatabaseDriver.js';

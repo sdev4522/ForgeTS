@@ -22,13 +22,13 @@ export {
 // ─── HTTP ───
 export { Request, ValidationException, parseCookieHeader, type RequestMeta } from './http/Request.js';
 export { serve, fileResponse, mimeTypeFor, type NodeServerHandle, type ConnectionInfo } from './http/NodeServer.js';
-export { Validator, ValidationError, type ValidationRules } from './http/Validator.js';
+export { Validator, ValidationError, type ValidationRules, type ValidationMessages } from './http/Validator.js';
 export { ForgeResponse, isValidHttpStatus, normalizeHttpStatus, escapeHtml, type CookieOptions } from './http/Response.js';
 export { serializeViewData } from './http/serializer.js';
 export { CsrfMiddleware } from './http/CsrfMiddleware.js';
 export { RateLimiter, RateLimit, createRateLimitMiddleware } from './http/RateLimiter.js';
 export { ErrorDisplayEngine } from './http/ErrorDisplayEngine.js';
-export type { Middleware, MiddlewareClass, NextFunction } from './http/Middleware.js';
+export type { Middleware, MiddlewareClass, MiddlewareHandler, MiddlewareLike, NextFunction } from './http/Middleware.js';
 
 // ─── Errors & Diagnostics ───
 export {
@@ -85,7 +85,7 @@ export { Hash, hash, type HashOptions } from './security/hash.js';
 export { getViteDevServer, closeViteDevServer, isViteAssetRequest } from './ssr/ViteDevServer.js';
 
 // ─── Routing ───
-export { Router } from './routing/Router.js';
+export { Router, type ResourceAction, type RouteGroupOptions } from './routing/Router.js';
 export {
   Controller,
   Get,
@@ -138,3 +138,20 @@ export {
   type BuildManifestOptions,
 } from './inspect/Manifest.js';
 export { COMMANDS, type CommandDefinition } from './inspect/commands.js';
+
+// ─── Helpers (shortest handler syntax) ───
+export {
+  view,
+  json,
+  created,
+  noContent,
+  text,
+  html,
+  redirect,
+  back,
+  abort,
+  abortIf,
+  abortUnless,
+  request,
+  response,
+} from './helpers.js';

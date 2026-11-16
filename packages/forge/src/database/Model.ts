@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { getDatabaseConnection, getMongoDriver } from './Connection.js';
-import { QueryBuilder } from './QueryBuilder.js';
+import { QueryBuilder, type Paginated } from './QueryBuilder.js';
 import { serializeModelAttributes, formatMysqlDateTime, serializeDatabaseValue } from './serializer.js';
 
 export abstract class Model {
@@ -289,6 +289,99 @@ export abstract class Model {
       : qb.where(column, opOrVal);
   }
 
+  static whereIn<T extends typeof Model>(this: T, column: string, values: readonly unknown[]): QueryBuilder<T> {
+    return new QueryBuilder(this).whereIn(column, values);
+  }
+
+  static orderBy<T extends typeof Model>(this: T, column: string, direction: 'asc' | 'desc' = 'asc'): QueryBuilder<T> {
+    return new QueryBuilder(this).orderBy(column, direction);
+  }
+
+  /** Newest first (by created_at unless another column is given). */
+  static latest<T extends typeof Model>(this: T, column = 'created_at'): QueryBuilder<T> {
+    return new QueryBuilder(this).latest(column);
+  }
+
+  /** Eager-load relations: `Post.with('author').get()`. */
+  static with<T extends typeof Model>(this: T, ...relations: string[]): QueryBuilder<T> {
+    const qb = new QueryBuilder(this);
+    for (const relation of relations) qb.with(relation);
+    return qb;
+  }
+
+  /** First record, or null when the table is empty. */
+  static first<T extends typeof Model>(this: T): Promise<InstanceType<T> | null> {
+    return new QueryBuilder(this).first();
+  }
+
+  /** First record where `column` equals `value`, or null. */
+  static findBy<T extends typeof Model>(this: T, column: string, value: unknown): Promise<InstanceType<T> | null> {
+    return new QueryBuilder(this).where(column, value).first();
+  }
+
+  /** Total number of records. */
+  static count<T extends typeof Model>(this: T): Promise<number> {
+    return new QueryBuilder(this).count();
+  }
+
+  /** One page of records: `{ data, total, perPage, currentPage, lastPage }`. */
+  static paginate<T extends typeof Model>(this: T, perPage = 15, page = 1): Promise<Paginated<InstanceType<T>>> {
+    return new QueryBuilder(this).paginate(perPage, page);
+  }
+
+  /**
+   * Find the first record matching `attributes`, or create it with
+   * `attributes` + `values`.
+   */
+  static async firstOrCreate<T extends typeof Model>(
+    this: T,
+    attributes: Record<string, any>,
+    values: Record<string, any> = {},
+  ): Promise<InstanceType<T>> {
+    const qb = new QueryBuilder(this);
+    for (const [column, value] of Object.entries(attributes)) qb.where(column, value);
+    const existing = await qb.first();
+    if (existing) return existing;
+    const instance = new (this as any)().forceFill({ ...attributes, ...values }) as InstanceType<T>;
+    await instance.save();
+    return instance;
+  }
+
+  /**
+   * Update the first record matching `attributes` with `values`, or create it.
+   */
+  static async updateOrCreate<T extends typeof Model>(
+    this: T,
+    attributes: Record<string, any>,
+    values: Record<string, any> = {},
+  ): Promise<InstanceType<T>> {
+    const qb = new QueryBuilder(this);
+    for (const [column, value] of Object.entries(attributes)) qb.where(column, value);
+    const existing = await qb.first();
+    if (existing) {
+      existing.forceFill(values);
+      await existing.save();
+      return existing;
+    }
+    const instance = new (this as any)().forceFill({ ...attributes, ...values }) as InstanceType<T>;
+    await instance.save();
+    return instance;
+  }
+
+  /** Delete records by primary key. Returns how many were deleted. */
+  static async destroy<T extends typeof Model>(this: T, ids: string | number | Array<string | number>): Promise<number> {
+    const list = Array.isArray(ids) ? ids : [ids];
+    let deleted = 0;
+    for (const id of list) {
+      const instance = await new QueryBuilder(this).where(this.getPrimaryKey(), id).first();
+      if (instance) {
+        await instance.delete();
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
   static async create<T extends typeof Model>(this: T, data: Record<string, any>): Promise<InstanceType<T>> {
     const instance = new (this as any)(data);
     // Explicitly provided created_at / updated_at overrides in create data take precedence
@@ -390,6 +483,26 @@ export abstract class Model {
       }
     }
 
+    return this;
+  }
+
+  /**
+   * Reload this instance's attributes from the database.
+   */
+  async refresh(): Promise<this> {
+    const ctor = this.constructor as typeof Model;
+    const pk = ctor.getPrimaryKey();
+    const pkValue = this._attributes[pk] ?? this._attributes['_id'];
+    if (pkValue === undefined || pkValue === null) {
+      throw new Error('[ForgeTS] Cannot refresh an unsaved model instance.');
+    }
+    const fresh: any = await new QueryBuilder(ctor).where(pk, pkValue).first();
+    if (!fresh) {
+      throw new Error(`[ForgeTS] Cannot refresh ${ctor.name}: the record no longer exists.`);
+    }
+    this._attributes = { ...fresh._attributes };
+    this._relations = {};
+    this._exists = true;
     return this;
   }
 

@@ -17,7 +17,7 @@ import {
   type RouteDefinition,
   type HttpMethod,
 } from './decorators.js';
-import type { MiddlewareClass } from '../http/Middleware.js';
+import type { MiddlewareLike } from '../http/Middleware.js';
 
 // ─── Types ───
 
@@ -26,13 +26,15 @@ export interface RegisteredRoute {
   fullPath: string;
   controllerClass: new (...args: any[]) => any;
   handlerName: string | symbol;
-  middleware: MiddlewareClass[];
+  middleware: MiddlewareLike[];
   type?: 'web' | 'api';
 }
 
+export type ResourceAction = 'index' | 'create' | 'store' | 'show' | 'edit' | 'update' | 'destroy';
+
 export interface RouteGroupOptions {
   prefix?: string;
-  middleware?: MiddlewareClass[];
+  middleware?: MiddlewareLike[];
 }
 
 // ─── Router ───
@@ -40,12 +42,12 @@ export interface RouteGroupOptions {
 export class Router {
   private routes: RegisteredRoute[] = [];
   private currentPrefix: string = '';
-  private currentMiddleware: MiddlewareClass[] = [];
+  private currentMiddleware: MiddlewareLike[] = [];
 
   /**
    * Apply middleware to all subsequent controllers registered on this router.
    */
-  middleware(...middlewareList: MiddlewareClass[]): this {
+  middleware(...middlewareList: MiddlewareLike[]): this {
     this.currentMiddleware.push(...middlewareList);
     return this;
   }
@@ -53,7 +55,7 @@ export class Router {
   /**
    * Alias for middleware().
    */
-  use(...middlewareList: MiddlewareClass[]): this {
+  use(...middlewareList: MiddlewareLike[]): this {
     return this.middleware(...middlewareList);
   }
 
@@ -86,8 +88,8 @@ export class Router {
     }
 
     const routeDefs = (metadata[ROUTES_META] as RouteDefinition[]) ?? [];
-    const classMiddleware = (metadata[MIDDLEWARE_META] as MiddlewareClass[]) ?? [];
-    const methodMiddleware = (metadata[METHOD_MIDDLEWARE_META] as Record<string | symbol, MiddlewareClass[]>) ?? {};
+    const classMiddleware = (metadata[MIDDLEWARE_META] as MiddlewareLike[]) ?? [];
+    const methodMiddleware = (metadata[METHOD_MIDDLEWARE_META] as Record<string | symbol, MiddlewareLike[]>) ?? {};
 
     for (const route of routeDefs) {
       // Build full path: groupPrefix + controllerPrefix + methodPath
@@ -162,39 +164,129 @@ export class Router {
    * router.get('/users', [UserController, 'index']);
    * ```
    */
-  get(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
-  get(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
-  get(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
-  get(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+  get(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareLike[]): this;
+  get(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareLike[]): this;
+  get(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareLike[]): this;
+  get(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareLike[] = []): this {
     return this.addRoute('GET', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  post(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
-  post(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
-  post(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
-  post(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+  post(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareLike[]): this;
+  post(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareLike[]): this;
+  post(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareLike[]): this;
+  post(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareLike[] = []): this {
     return this.addRoute('POST', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  put(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
-  put(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
-  put(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
-  put(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+  put(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareLike[]): this;
+  put(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareLike[]): this;
+  put(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareLike[]): this;
+  put(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareLike[] = []): this {
     return this.addRoute('PUT', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  patch(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
-  patch(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
-  patch(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
-  patch(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+  patch(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareLike[]): this;
+  patch(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareLike[]): this;
+  patch(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareLike[]): this;
+  patch(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareLike[] = []): this {
     return this.addRoute('PATCH', path, target, actionOrMiddleware, maybeMiddleware);
   }
 
-  delete(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareClass[]): this;
-  delete(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareClass[]): this;
-  delete(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareClass[]): this;
-  delete(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareClass[] = []): this {
+  delete(path: string, handler: (req: any, res: any) => any, middleware?: MiddlewareLike[]): this;
+  delete(path: string, controller: new (...args: any[]) => any, action: string | symbol, middleware?: MiddlewareLike[]): this;
+  delete(path: string, target: [new (...args: any[]) => any, string | symbol], middleware?: MiddlewareLike[]): this;
+  delete(path: string, target: any, actionOrMiddleware?: any, maybeMiddleware: MiddlewareLike[] = []): this {
     return this.addRoute('DELETE', path, target, actionOrMiddleware, maybeMiddleware);
+  }
+
+  /**
+   * Register RESTful routes for a controller in one line.
+   * Only actions the controller actually defines are registered.
+   *
+   * | Method    | Path              | Action  |
+   * |-----------|-------------------|---------|
+   * | GET       | /posts            | index   |
+   * | GET       | /posts/create     | create  |
+   * | POST      | /posts            | store   |
+   * | GET       | /posts/:id        | show    |
+   * | GET       | /posts/:id/edit   | edit    |
+   * | PUT/PATCH | /posts/:id        | update  |
+   * | DELETE    | /posts/:id        | destroy |
+   *
+   * @example
+   * ```ts
+   * router.resource('/posts', PostController);
+   * router.resource('/posts', PostController, { only: ['index', 'show'] });
+   * ```
+   */
+  resource(
+    path: string,
+    controller: new (...args: any[]) => any,
+    options: {
+      only?: ResourceAction[];
+      except?: ResourceAction[];
+      middleware?: MiddlewareLike[];
+      /** Route parameter name (default: 'id'). */
+      param?: string;
+    } = {},
+  ): this {
+    const base = this.normalizePath(path.startsWith('/') ? path : `/${path}`);
+    const root = base === '/' ? '' : base;
+    const param = options.param ?? 'id';
+    const middleware = options.middleware ?? [];
+
+    // Static paths (create) are registered before parameter paths (:id)
+    const table: Array<[ResourceAction, HttpMethod[], string]> = [
+      ['index', ['GET'], root || '/'],
+      ['create', ['GET'], `${root}/create`],
+      ['store', ['POST'], root || '/'],
+      ['show', ['GET'], `${root}/:${param}`],
+      ['edit', ['GET'], `${root}/:${param}/edit`],
+      ['update', ['PUT', 'PATCH'], `${root}/:${param}`],
+      ['destroy', ['DELETE'], `${root}/:${param}`],
+    ];
+
+    for (const [action, methods, routePath] of table) {
+      if (options.only && !options.only.includes(action)) continue;
+      if (options.except?.includes(action)) continue;
+      if (typeof controller.prototype?.[action] !== 'function') continue;
+      for (const method of methods) {
+        this.addRoute(method, routePath, controller, action, middleware);
+      }
+    }
+
+    return this;
+  }
+
+  /**
+   * JSON API resource: like resource() without the HTML form pages (create / edit).
+   */
+  apiResource(
+    path: string,
+    controller: new (...args: any[]) => any,
+    options: Parameters<Router['resource']>[2] = {},
+  ): this {
+    return this.resource(path, controller, {
+      ...options,
+      except: [...(options?.except ?? []), 'create', 'edit'],
+    });
+  }
+
+  /**
+   * Render a page for a path with no controller.
+   *
+   * @example
+   * ```ts
+   * router.view('/about', 'about', { team: 'Forge' });
+   * ```
+   */
+  view(path: string, page: string, data: Record<string, unknown> = {}, middleware: MiddlewareLike[] = []): this {
+    return this.addRoute('GET', path, (_req: any, res: any) => res.view(page, data), middleware);
+  }
+
+  /** Redirect one path to another (302 by default). */
+  redirect(from: string, to: string, status = 302): this {
+    return this.addRoute('GET', from, (_req: any, res: any) => res.redirect(to, status));
   }
 
   private addRoute(
@@ -202,11 +294,11 @@ export class Router {
     path: string,
     target: any,
     actionOrMiddleware?: any,
-    maybeMiddleware: MiddlewareClass[] = [],
+    maybeMiddleware: MiddlewareLike[] = [],
   ): this {
     let controllerClass: new (...args: any[]) => any;
     let handlerName: string | symbol = 'handle';
-    let middleware: MiddlewareClass[] = [];
+    let middleware: MiddlewareLike[] = [];
 
     if (Array.isArray(target) && target.length >= 2 && typeof target[0] === 'function') {
       controllerClass = target[0];
