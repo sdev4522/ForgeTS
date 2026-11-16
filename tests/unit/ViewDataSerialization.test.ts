@@ -3,7 +3,7 @@
 // Unit tests for HTTP/SSR View Data Serialization and Model Proxy Traps.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect } from '../harness.js';
 import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import { Model } from '../../packages/forge/src/database/Model.js';

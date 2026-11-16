@@ -8,7 +8,8 @@ import { Kysely, MysqlDialect } from 'kysely';
 import mysql from 'mysql2';
 import { config } from '../config/ConfigManager.js';
 import { MongoDriver } from './MongoDriver.js';
-import { ErrorDisplayEngine } from '../http/ErrorDisplayEngine.js';
+import { Redactor } from '../errors/Redactor.js';
+import { sql } from 'kysely';
 
 let _kyselyInstance: Kysely<any> | null = null;
 let _mongoDriverInstance: MongoDriver | null = null;
@@ -33,8 +34,8 @@ export function getDatabaseConnection(): Kysely<any> {
       user: connConfig.username ?? connConfig.user ?? 'root',
       password: connConfig.password ?? '',
       timezone: connConfig.timezone ?? 'Z',
-      connectionLimit: 10,
-      connectTimeout: 2000,
+      connectionLimit: connConfig.connectionLimit ?? connConfig.pool ?? 10,
+      connectTimeout: connConfig.connectTimeout ?? 2000,
     });
 
     _kyselyInstance = new Kysely<any>({
@@ -74,6 +75,23 @@ export function setMongoDriver(driver: MongoDriver | null): void {
  * Reset cached singleton database connections.
  * Primarily used to ensure test isolation between connection state changes.
  */
+/**
+ * Close all open database connections (SQL pool and MongoDB client).
+ * Called on graceful shutdown.
+ */
+export async function closeDatabaseConnections(): Promise<void> {
+  const kysely = _kyselyInstance;
+  const mongo = _mongoDriverInstance;
+  _kyselyInstance = null;
+  _mongoDriverInstance = null;
+  try {
+    await kysely?.destroy();
+  } catch {}
+  try {
+    await mongo?.disconnect();
+  } catch {}
+}
+
 export function resetDatabaseConnection(): void {
   _kyselyInstance = null;
   _mongoDriverInstance = null;
@@ -105,13 +123,13 @@ export async function verifyDatabaseConnectionOnBoot(): Promise<void> {
     host: connConfig.host ?? '127.0.0.1',
     port: connConfig.port,
     database: connConfig.database,
-    uri: connConfig.uri ? ErrorDisplayEngine.redactSecrets(connConfig.uri) : undefined,
+    uri: connConfig.uri ? Redactor.redactString(connConfig.uri) : undefined,
   };
 
   try {
     if (connConfig.driver === 'mysql') {
       const db = getDatabaseConnection();
-      await (db as any).executeQuery({ sql: 'SELECT 1;', parameters: [], query: {} });
+      await sql`select 1`.execute(db);
     } else if (connConfig.driver === 'mongodb') {
       const mongo = getMongoDriver();
       await mongo.connect();
@@ -122,7 +140,7 @@ export async function verifyDatabaseConnectionOnBoot(): Promise<void> {
     console.error(`   - Connection Name: '${defaultConn}'`);
     console.error(`   - Driver:          '${connConfig.driver}'`);
     console.error(`   - Config:          ${JSON.stringify(sanitizedConfig)}`);
-    console.error(`   - Error Details:   ${ErrorDisplayEngine.redactSecrets(err.message)}`);
+    console.error(`   - Error Details:   ${Redactor.redactString(err.message)}`);
     console.error('─'.repeat(70) + '\n');
     process.exit(1);
   }

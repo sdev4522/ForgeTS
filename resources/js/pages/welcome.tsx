@@ -19,14 +19,14 @@ export default function WelcomePage({
   version = '0.1.0',
   uptime = '0s',
   heapUsed = '0 MB',
-  runtime = 'Bun 1.3+',
+  runtime = 'Node.js 24+',
   environment = 'development',
 }: WelcomeProps) {
   const [copied, setCopied] = useState(false);
 
   const copyQuickstart = () => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText('bun create forgets my-app && cd my-app && bun run dev');
+      navigator.clipboard.writeText('npm install && npm run dev');
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -650,7 +650,7 @@ export default function WelcomePage({
           </div>
           <h1 className="fw-hero-title">
             The structure of Laravel.<br />
-            The speed of <span className="fw-hero-highlight">Bun &amp; TypeScript — Vite HMR Preserved</span>.
+            The speed of <span className="fw-hero-highlight">Node.js &amp; TypeScript — Vite HMR Preserved</span>.
           </h1>
           <p className="fw-hero-subtitle">
             ForgeTS is a batteries-included, TypeScript-first web framework designed for developer velocity.
@@ -817,9 +817,9 @@ export default function WelcomePage({
           <div className="fw-pillars-grid">
             <div className="fw-pillar-card">
               <span className="fw-pillar-badge">Performance</span>
-              <h3 className="fw-pillar-title">Bun Native Engine</h3>
+              <h3 className="fw-pillar-title">Lean Node.js Engine</h3>
               <p className="fw-pillar-text">
-                Directly bound to Bun.serve() without intermediate Express or Koa overhead. Sub-millisecond routing and minimal memory consumption.
+                Built directly on node:http without intermediate Express or Koa overhead. Radix-trie routing and minimal memory consumption.
               </p>
             </div>
             <div className="fw-pillar-card">
@@ -865,7 +865,7 @@ export default function WelcomePage({
       <footer className="fw-footer">
         <div className="fw-container fw-footer-inner">
           <div className="fw-footer-meta">
-            ForgeTS Framework &middot; TypeScript on Bun &middot; Environment: {environment}
+            ForgeTS Framework &middot; TypeScript on Node.js &middot; Environment: {environment}
           </div>
           <div className="fw-footer-links">
             <a href="/" className="fw-footer-link">Home</a>

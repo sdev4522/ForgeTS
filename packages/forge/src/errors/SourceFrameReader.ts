@@ -6,8 +6,37 @@
 // Guarded against path traversal, sensitive file inspection, and binary files.
 // ─────────────────────────────────────────────────────────────────────
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** Largest source file the snippet reader will load. */
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
+/** Number of parsed source files kept in memory between errors. */
+const MAX_CACHED_FILES = 32;
+
+interface CachedSource {
+  mtimeMs: number;
+  size: number;
+  lines: string[];
+}
+
+/** Strip `file://` and bundler query strings from a stack-frame path. */
+function cleanFilePath(filePath: string): string {
+  let clean = filePath;
+  if (clean.startsWith('file://')) {
+    try {
+      clean = fileURLToPath(clean);
+    } catch {
+      clean = clean.slice(7);
+    }
+  }
+  const qIdx = clean.indexOf('?');
+  if (qIdx !== -1) {
+    clean = clean.slice(0, qIdx);
+  }
+  return clean;
+}
 
 export interface CodeSnippetLine {
   lineNum: number;
@@ -43,17 +72,11 @@ export class SourceFrameReader {
   static getDisplayPath(filePath: string): string {
     if (!filePath) return '';
     const cwd = process.cwd();
-    let clean = filePath;
-    if (clean.startsWith('file://')) {
-      clean = clean.slice(7);
-    }
-    // Strip query string if added by bundlers/Vite
-    const qIdx = clean.indexOf('?');
-    if (qIdx !== -1) {
-      clean = clean.slice(0, qIdx);
-    }
-    return clean.startsWith(cwd) ? clean.slice(cwd.length + 1) : clean;
+    const clean = cleanFilePath(filePath);
+    return clean.startsWith(cwd + sep) ? clean.slice(cwd.length + 1) : clean;
   }
+
+  private static sourceCache: Map<string, CachedSource> = new Map();
 
   /**
    * Parse a raw stack trace string into structured, categorized frames.
@@ -119,18 +142,13 @@ export class SourceFrameReader {
       }
 
       // Clean file path (strip file:// and query params)
-      if (filePath.startsWith('file://')) {
-        filePath = filePath.slice(7);
-      }
-      const qIdx = filePath.indexOf('?');
-      if (qIdx !== -1) {
-        filePath = filePath.slice(0, qIdx);
-      }
+      filePath = cleanFilePath(filePath);
 
       const isVendor =
         filePath.includes('node_modules') ||
-        filePath.includes('bun:') ||
-        filePath.includes('node:') ||
+        filePath.startsWith('bun:') ||
+        filePath.startsWith('node:') ||
+        filePath.startsWith('internal/') ||
         filePath.includes('(native)') ||
         filePath.includes('[native code]') ||
         filePath === 'native';
@@ -143,7 +161,7 @@ export class SourceFrameReader {
 
       const isApp = !isVendor && !isFramework && filePath.length > 0;
 
-      const displayPath = filePath.startsWith(cwd)
+      const displayPath = filePath.startsWith(cwd + sep)
         ? filePath.slice(cwd.length + 1)
         : filePath;
 
@@ -166,9 +184,12 @@ export class SourceFrameReader {
   /**
    * Safely load source code surrounding an error line.
    * Guarantees:
-   * - Never crashes on unreadable, missing, or binary files.
-   * - Prevents path traversal and never reads sensitive .env / .pem files.
+   * - Never crashes on unreadable, missing, oversized, or binary files.
+   * - Only reads files inside the project directory (process.cwd()); paths that
+   *   resolve elsewhere — e.g. taken from a crafted error message — are refused.
+   * - Never reads dotfiles, .env files, or key material.
    * - Truncates excessively long lines to prevent memory or layout blowouts.
+   * - Parsed files are cached, so many frames in one file cost a single read.
    */
   static getCodeSnippet(
     filePath: string,
@@ -176,40 +197,36 @@ export class SourceFrameReader {
     errorCol = 0,
     contextLines = 5,
   ): CodeSnippet | null {
-    if (!filePath || typeof filePath !== 'string' || errorLine <= 0) return null;
+    if (!filePath || typeof filePath !== 'string') return null;
+    if (!Number.isInteger(errorLine) || errorLine <= 0) return null;
 
     try {
-      let cleanPath = filePath;
-      if (cleanPath.startsWith('file://')) {
-        cleanPath = cleanPath.slice(7);
-      }
-      const qIdx = cleanPath.indexOf('?');
-      if (qIdx !== -1) {
-        cleanPath = cleanPath.slice(0, qIdx);
+      const resolved = resolve(cleanFilePath(filePath));
+      const cwd = process.cwd();
+
+      // Security check: stay inside the project root
+      if (!resolved.startsWith(cwd + sep)) {
+        return null;
       }
 
-      const resolved = resolve(cleanPath);
-
-      // Security check: Block access to .env and secret configuration files
-      const baseName = resolved.split(/[\/\\]/).pop() || '';
+      // Security check: block dotfiles, .env files and secret/key material
+      const relativeParts = resolved.slice(cwd.length + 1).split(/[\/\\]/);
+      const baseName = relativeParts[relativeParts.length - 1] ?? '';
       if (
-        baseName === '.env' ||
-        baseName.startsWith('.env.') ||
-        baseName.endsWith('.pem') ||
-        baseName.endsWith('.key')
+        baseName.startsWith('.') ||
+        /\.(pem|key|p12|pfx|crt|cer|sqlite|db)$/i.test(baseName) ||
+        relativeParts.includes('.git') ||
+        relativeParts.includes('storage')
       ) {
         return null;
       }
 
-      if (!existsSync(resolved)) {
-        return null;
-      }
+      const lines = this.loadSourceLines(resolved);
+      if (!lines) return null;
 
-      const content = readFileSync(resolved, 'utf-8');
-      const lines = content.split('\n');
-
-      const start = Math.max(0, errorLine - 1 - contextLines);
-      const end = Math.min(lines.length, errorLine + contextLines);
+      const safeContext = Math.min(Math.max(0, Math.trunc(contextLines) || 0), 50);
+      const start = Math.max(0, errorLine - 1 - safeContext);
+      const end = Math.min(lines.length, errorLine + safeContext);
 
       const snippetLines: CodeSnippetLine[] = [];
 
@@ -227,20 +244,46 @@ export class SourceFrameReader {
         });
       }
 
-      const cwd = process.cwd();
-      const displayPath = resolved.startsWith(cwd)
-        ? resolved.slice(cwd.length + 1)
-        : resolved;
-
       return {
         file: resolved,
-        displayPath,
+        displayPath: resolved.slice(cwd.length + 1),
         line: errorLine,
-        column: errorCol,
+        column: Number.isFinite(errorCol) ? errorCol : 0,
         lines: snippetLines,
       };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Read a source file as lines, with an mtime-validated in-memory cache.
+   * Returns null for missing, non-regular, oversized, or binary files.
+   */
+  private static loadSourceLines(resolved: string): string[] | null {
+    let info;
+    try {
+      info = statSync(resolved);
+    } catch {
+      return null;
+    }
+    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return null;
+
+    const cached = this.sourceCache.get(resolved);
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
+      return cached.lines;
+    }
+
+    const content = readFileSync(resolved, 'utf-8');
+    if (content.includes('\u0000')) return null; // binary
+
+    const lines = content.split(/\r?\n/);
+    this.sourceCache.delete(resolved);
+    this.sourceCache.set(resolved, { mtimeMs: info.mtimeMs, size: info.size, lines });
+    if (this.sourceCache.size > MAX_CACHED_FILES) {
+      const oldest = this.sourceCache.keys().next().value;
+      if (oldest !== undefined) this.sourceCache.delete(oldest);
+    }
+    return lines;
   }
 }

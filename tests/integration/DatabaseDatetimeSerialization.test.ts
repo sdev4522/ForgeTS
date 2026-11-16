@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import '../../packages/forge/src/polyfills.js';
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from '../harness.js';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 import appConfig from '../../config/app.js';
 import dbConfig from '../../config/database.js';

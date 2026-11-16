@@ -1,6 +1,6 @@
 // tests/unit/MongoDriver.test.ts
 import '../../packages/forge/src/polyfills.js';
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeAll } from '../harness.js';
 import { MongoDriver } from '../../packages/forge/src/database/MongoDriver.js';
 import { Model, Column } from '../../packages/forge/src/database/index.js';
 import { setMongoDriver } from '../../packages/forge/src/database/Connection.js';

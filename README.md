@@ -1,13 +1,13 @@
 # ForgeTS
 
-> **Batteries-included, TypeScript-first web framework running on Bun.**  
+> **Batteries-included, TypeScript-first web framework running on Node.js.**  
 > *Laravel's developer experience meets JavaScript's raw speed.*
 
 ---
 
 ## Key Highlights
 
-- **Bun-Native Engine**: Built directly on `Bun.serve()` with zero intermediate abstraction layers. Sub-millisecond routing and minimal idle heap.
+- **Lean Node.js Engine**: Built directly on `node:http` through a thin Fetch-API adapter — no Express or Koa layers. Radix-trie routing and minimal idle heap.
 - **TC39 Stage 3 Decorators**: ECMAScript standard decorators (`@Controller`, `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`, `@Middleware`, `@Column`). Zero `experimentalDecorators` or `reflect-metadata` overhead.
 - **Radix-Trie Router**: O(path-segments) route matching that never degrades as your application route count grows. Supports route parameters (`:id`), grouping, and prefixes.
 - **Active Record ORM**: Built on Kysely (MySQL) and native MongoDB drivers with a 100% unified API (`User.find()`, `User.all()`, `User.create()`, `user.save()`, `user.delete()`, `user.fill()`). Features mass-assignment protection (`fillable`/`guarded`) and driver-aware datetime serialization.
@@ -66,10 +66,10 @@ ForgeTS/
 
 ### 1. Installation
 
-Ensure you have [Bun](https://bun.sh) (v1.3+) installed:
+Ensure you have [Node.js](https://nodejs.org) 24.7 or newer installed (TypeScript runs through `tsx`, no build step in development):
 
 ```bash
-bun install
+npm install
 ```
 
 ### 2. Configure Environment
@@ -84,7 +84,7 @@ cp .env.example .env
 
 ```bash
 # Start development supervisor with hot reloading & Vite HMR
-bun run dev
+npm run dev
 ```
 
 Or using the `forge` CLI:
@@ -375,28 +375,28 @@ forge optimize:clear
 
 ## Testing & Building
 
-Run unit and integration tests using Bun's native test runner:
+Run unit and integration tests using Node's built-in test runner:
 
 ```bash
-bun test
+npm test
 ```
 
 Run security access control regression tests:
 
 ```bash
-bun run test:security
+npm run test:security
 ```
 
 Run production client and SSR bundle builds:
 
 ```bash
-bun run build
+npm run build
 ```
 
 Start in production mode:
 
 ```bash
-bun run start
+npm run start
 ```
 
 ---
@@ -431,4 +431,4 @@ ForgeTS enforces strict engineering standards:
 
 ## License
 
-MIT License. Designed and built for high-performance TypeScript development on Bun.
+MIT License. Designed and built for high-performance TypeScript development on Node.js.

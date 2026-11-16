@@ -10,6 +10,43 @@ import { MODEL_RELATIONS, type RelationDefinition } from './decorators.js';
 import { serializeDatabaseValue } from './serializer.js';
 import { ModelNotFoundException } from '../errors/index.js';
 
+function isOperatorObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.keys(value).some((k) => k.startsWith('$'))
+  );
+}
+
+/**
+ * Reject values that would be interpreted as MongoDB query operators.
+ * Request input such as `{ "$ne": null }` must never reach a filter as-is;
+ * comparisons are expressed through where(column, operator, value).
+ */
+function assertSafeMongoValue(column: string, value: unknown): void {
+  const check = (v: unknown, depth: number): void => {
+    if (v === null || typeof v !== 'object' || depth > 8) return;
+    if (v instanceof Date) return;
+    if (Array.isArray(v)) {
+      for (const item of v) check(item, depth + 1);
+      return;
+    }
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) return; // ObjectId, ForgeDate, …
+    for (const [key, nested] of Object.entries(v)) {
+      if (key.startsWith('$')) {
+        throw new TypeError(
+          `[ForgeTS] Refusing MongoDB operator '${key}' in where('${column}', …) value. ` +
+            `Pass scalar values, or use where(column, operator, value).`,
+        );
+      }
+      check(nested, depth + 1);
+    }
+  };
+  check(value, 0);
+}
+
 export class QueryBuilder<M extends typeof Model> {
   private sqlQuery: any = null;
   private mongoWhere: Record<string, any> = {};
@@ -37,29 +74,41 @@ export class QueryBuilder<M extends typeof Model> {
   where(column: string, opOrValue: unknown, value?: unknown): this {
     if (this.isMongo()) {
       const driver = 'mongodb';
-      const actualValue = value === undefined ? opOrValue : value;
-      const serializedValue = serializeDatabaseValue(actualValue, driver);
+      const hasOperator = arguments.length >= 3;
+      const operator = hasOperator ? String(opOrValue) : '=';
+      const actualValue = hasOperator ? value : opOrValue;
+      assertSafeMongoValue(column, actualValue);
 
-      if (value === undefined) {
-        this.mongoWhere[column] = serializedValue;
-      } else if (opOrValue === '=') {
-        this.mongoWhere[column] = serializedValue;
-      } else if (opOrValue === '>') {
-        this.mongoWhere[column] = { $gt: serializedValue };
-      } else if (opOrValue === '>=') {
-        this.mongoWhere[column] = { $gte: serializedValue };
-      } else if (opOrValue === '<') {
-        this.mongoWhere[column] = { $lt: serializedValue };
-      } else if (opOrValue === '<=') {
-        this.mongoWhere[column] = { $lte: serializedValue };
-      } else if (opOrValue === '!=') {
-        this.mongoWhere[column] = { $ne: serializedValue };
+      // The model primary key maps onto Mongo's `_id` (ObjectId when applicable)
+      let field = column;
+      let serializedValue = serializeDatabaseValue(actualValue, driver);
+      if (column === this.modelClass.getPrimaryKey() || column === '_id') {
+        field = '_id';
+        serializedValue = getMongoDriver().toDocumentId(serializedValue as any);
+      }
+
+      const mongoOps: Record<string, string> = {
+        '>': '$gt',
+        '>=': '$gte',
+        '<': '$lt',
+        '<=': '$lte',
+        '!=': '$ne',
+        '<>': '$ne',
+      };
+
+      if (operator === '=') {
+        this.mongoWhere[field] = serializedValue;
+      } else if (mongoOps[operator]) {
+        // Merge with existing operators on the same field (e.g. >= and <)
+        const existing = this.mongoWhere[field];
+        const base = isOperatorObject(existing) ? existing : {};
+        this.mongoWhere[field] = { ...base, [mongoOps[operator]]: serializedValue };
       } else {
-        this.mongoWhere[column] = serializedValue;
+        throw new TypeError(`[ForgeTS] Unsupported where operator '${operator}' for MongoDB models.`);
       }
     } else {
       const driver = (this.modelClass as any).connection || 'mysql';
-      if (value === undefined) {
+      if (arguments.length < 3) {
         const serialized = serializeDatabaseValue(opOrValue, driver);
         this.sqlQuery = this.sqlQuery.where(column, '=', serialized);
       } else {
@@ -73,6 +122,8 @@ export class QueryBuilder<M extends typeof Model> {
   whereBetween(column: string, range: [unknown, unknown]): this {
     if (this.isMongo()) {
       const driver = 'mongodb';
+      assertSafeMongoValue(column, range[0]);
+      assertSafeMongoValue(column, range[1]);
       this.mongoWhere[column] = {
         $gte: serializeDatabaseValue(range[0], driver),
         $lte: serializeDatabaseValue(range[1], driver),
@@ -178,13 +229,23 @@ export class QueryBuilder<M extends typeof Model> {
 
     for (const relName of this.eagerRelations) {
       const relDef = relations.find((r) => String(r.propertyKey) === relName);
-      if (!relDef) continue;
+      if (!relDef) {
+        throw new Error(
+          `[ForgeTS] Relation '${relName}' is not defined on model ${this.modelClass.name}.`,
+        );
+      }
 
       const TargetClass: any = relDef.targetModelGetter();
       const primaryKey = this.modelClass.getPrimaryKey();
 
-      if (relDef.type === 'hasMany') {
-        const ids = instances.map((inst) => (inst as any)[primaryKey]).filter(Boolean);
+      if (relDef.type === 'hasMany' || relDef.type === 'hasOne') {
+        const ids = [
+          ...new Set(
+            instances
+              .map((inst) => (inst as any)[primaryKey])
+              .filter((id) => id !== undefined && id !== null),
+          ),
+        ];
         if (ids.length === 0) continue;
 
         const db = getDatabaseConnection();
@@ -200,12 +261,16 @@ export class QueryBuilder<M extends typeof Model> {
           const matching = relatedInstances.filter(
             (relInst) => String(relInst[relDef.foreignKey]) === String((inst as any)[primaryKey]),
           );
-          (inst as any)[relDef.propertyKey] = matching;
+          (inst as any).setRelation(relName, relDef.type === 'hasOne' ? (matching[0] ?? null) : matching);
         }
       } else if (relDef.type === 'belongsTo') {
-        const foreignIds = instances
-          .map((inst) => (inst as any)[relDef.foreignKey])
-          .filter(Boolean);
+        const foreignIds = [
+          ...new Set(
+            instances
+              .map((inst) => (inst as any)[relDef.foreignKey])
+              .filter((id) => id !== undefined && id !== null),
+          ),
+        ];
         if (foreignIds.length === 0) continue;
 
         const targetPrimaryKey = TargetClass.getPrimaryKey();
@@ -222,7 +287,7 @@ export class QueryBuilder<M extends typeof Model> {
           const matching = parentInstances.find(
             (pInst) => String(pInst[targetPrimaryKey]) === String((inst as any)[relDef.foreignKey]),
           );
-          (inst as any)[relDef.propertyKey] = matching ?? null;
+          (inst as any).setRelation(relName, matching ?? null);
         }
       }
     }

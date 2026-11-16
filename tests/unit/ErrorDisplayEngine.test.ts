@@ -4,7 +4,7 @@
 // Uses generic, portable test fixtures independent of developer environment.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect } from '../harness.js';
 import path from 'path';
 import { ErrorDisplayEngine } from '../../packages/forge/src/http/ErrorDisplayEngine.js';
 import { HttpException } from '../../packages/forge/src/index.js';
@@ -80,7 +80,7 @@ describe('ErrorDisplayEngine — Unit & Security Suite', () => {
     expect(missingSnippet).toBeNull();
 
     // 3. Invalid line number
-    const invalidLine = ErrorDisplayEngine.getCodeSnippet(import.meta.path, -5);
+    const invalidLine = ErrorDisplayEngine.getCodeSnippet(import.meta.filename, -5);
     expect(invalidLine).toBeNull();
   });
 

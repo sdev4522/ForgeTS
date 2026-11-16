@@ -20,8 +20,10 @@ function getOrCreateArray<T>(metadata: DecoratorMetadataObject | undefined, key:
   if (!metadata) {
     return [] as T[];
   }
-  if (!metadata[key]) {
-    metadata[key] = [] as T[];
+  // Copy-on-write so subclasses never mutate their parent's metadata arrays
+  if (!Object.hasOwn(metadata, key)) {
+    const inherited = metadata[key] as T[] | undefined;
+    metadata[key] = inherited ? [...inherited] : ([] as T[]);
   }
   return metadata[key] as T[];
 }

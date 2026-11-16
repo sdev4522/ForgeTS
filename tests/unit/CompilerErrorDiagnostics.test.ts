@@ -4,7 +4,7 @@
 // Tests Bun AggregateError, BuildMessage, and multi-error inspection.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect } from '../harness.js';
 import path from 'node:path';
 import { ErrorDisplayEngine } from '../../packages/forge/src/http/ErrorDisplayEngine.js';
 

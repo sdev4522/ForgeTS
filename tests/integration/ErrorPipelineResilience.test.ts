@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from '../harness.js';
 import app from '../../bootstrap/app.js';
 import { Router, ValidationError } from '@forge/core';
 import { getDatabaseConnection } from '../../packages/forge/src/database/Connection.js';
@@ -44,11 +44,20 @@ describe('Error Pipeline Resilience & Status Contract', () => {
   });
 
   test('1. Successful CRUD create returns 2xx with valid timestamps', async () => {
+    // Web routes require a CSRF token: load a page first to obtain the cookie
+    const page = await (app as any).handleRequest(
+      new globalThis.Request('http://localhost:3000/about', { headers: { Accept: 'text/html' } }),
+    );
+    const csrfToken = /forge_session=([a-f0-9]+)/.exec(page.headers.get('set-cookie') ?? '')?.[1] ?? '';
+    expect(csrfToken).toMatch(/^[a-f0-9]{64}$/);
+
     const req = new globalThis.Request('http://localhost:3000/user', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'Cookie': `forge_session=${csrfToken}`,
+        'X-CSRF-Token': csrfToken,
       },
       body: JSON.stringify({
         name: 'Resilience Tester',

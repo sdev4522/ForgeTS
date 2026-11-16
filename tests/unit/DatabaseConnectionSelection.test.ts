@@ -4,14 +4,16 @@
 // Verifies that supported drivers are not required database services.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from '../harness.js';
 import {
   verifyDatabaseConnectionOnBoot,
   resetDatabaseConnection,
 } from '../../packages/forge/src/database/Connection.js';
-import { getConfigManager } from '../../packages/forge/src/config/ConfigManager.js';
+import { getConfigManager, initConfig } from '../../packages/forge/src/config/ConfigManager.js';
 
 describe('Database Connection Selection & Independence', () => {
+  // Each test file runs in its own process: initialize config explicitly
+  initConfig(process.cwd());
   const config = getConfigManager();
   const originalConfigStore = (config as any).store;
 

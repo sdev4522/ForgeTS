@@ -1,7 +1,7 @@
 // packages/forge/src/http/Request.ts
 // ─────────────────────────────────────────────────────────────────────
 // Unified HTTP Request wrapper.
-// Wraps the underlying runtime primitives (Bun Request, Node IncomingMessage)
+// Wraps the underlying Fetch-API Request (adapted from Node's IncomingMessage)
 // without leaking them. All user code interacts with this class only.
 //
 // PERFORMANCE: Properties are lazily computed. URL parsing, query string
@@ -9,24 +9,55 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type { ZodSchema, ZodError } from 'zod';
-import { Validator, ValidationError } from './Validator.js';
+import { Validator } from './Validator.js';
+import { ValidationError } from '../errors/ForgeError.js';
+import { getConfigManager } from '../config/ConfigManager.js';
+import type { RegisteredRoute } from '../routing/Router.js';
 
-export class ValidationException extends Error {
-  public readonly errors: Record<string, string[]>;
-
+/**
+ * Validation failure raised from a Zod schema.
+ * Extends the framework ValidationError so it renders as HTTP 422
+ * with the same `errors` payload as pipe-rule validation.
+ */
+export class ValidationException extends ValidationError {
   constructor(zodError: ZodError) {
-    super('Validation failed');
-    this.name = 'ValidationException';
-    this.errors = {};
-
+    const errors: Record<string, string[]> = {};
     for (const issue of zodError.issues) {
       const path = issue.path.join('.') || '_root';
-      if (!this.errors[path]) {
-        this.errors[path] = [];
-      }
-      this.errors[path].push(issue.message);
+      (errors[path] ??= []).push(issue.message);
+    }
+    super(errors, 'Validation failed');
+  }
+}
+
+/** Per-request connection and routing metadata supplied by the framework. */
+export interface RequestMeta {
+  remoteAddress?: string;
+  route?: RegisteredRoute;
+}
+
+/**
+ * Parse a Cookie header into a name → value map.
+ * Malformed percent-escapes are kept verbatim instead of throwing.
+ */
+export function parseCookieHeader(cookieHeader: string): Record<string, string> {
+  const cookies: Record<string, string> = Object.create(null);
+  if (!cookieHeader) return cookies;
+  for (const pair of cookieHeader.split(';')) {
+    const idx = pair.indexOf('=');
+    if (idx <= 0) continue;
+    const key = pair.slice(0, idx).trim();
+    let val = pair.slice(idx + 1).trim();
+    if (val.length >= 2 && val.startsWith('"') && val.endsWith('"')) {
+      val = val.slice(1, -1);
+    }
+    try {
+      cookies[key] = decodeURIComponent(val);
+    } catch {
+      cookies[key] = val;
     }
   }
+  return cookies;
 }
 
 export class Request {
@@ -43,15 +74,28 @@ export class Request {
   private _body: unknown = undefined;
   private _bodyParsed = false;
   private _rawRequest: globalThis.Request;
+  private _cookies: Record<string, string> | null = null;
+  private _meta: RequestMeta;
 
   /**
    * @internal — Only the framework creates Request instances.
    * User code never calls this constructor.
    */
-  constructor(raw: globalThis.Request, params: Record<string, string> = {}) {
+  constructor(raw: globalThis.Request, params: Record<string, string> = {}, meta: RequestMeta = {}) {
     this._rawRequest = raw;
     this.params = Object.freeze(params);
     this.method = raw.method;
+    this._meta = meta;
+  }
+
+  /** The matched route definition, if any. */
+  get route(): RegisteredRoute | undefined {
+    return this._meta.route;
+  }
+
+  /** Route group type: 'web' (session/CSRF) or 'api' (stateless). */
+  get routeType(): 'web' | 'api' | undefined {
+    return this._meta.route?.type;
   }
 
   /** Get a route parameter by name. */
@@ -84,9 +128,11 @@ export class Request {
   /** Parsed query string parameters (lazy). */
   get query(): Readonly<Record<string, string | string[]>> {
     if (!this._query) {
-      this._query = {};
+      // Null-prototype map: keys like `__proto__` / `toString` are plain data
+      const query: Record<string, string | string[]> = Object.create(null);
+      this._query = query;
       for (const [key, value] of this.url.searchParams.entries()) {
-        const existing = this._query[key];
+        const existing = query[key];
         if (existing !== undefined) {
           if (Array.isArray(existing)) {
             existing.push(value);
@@ -117,6 +163,21 @@ export class Request {
   /** Get a specific header value. */
   header(name: string): string | undefined {
     return this._rawRequest.headers.get(name.toLowerCase()) ?? undefined;
+  }
+
+  // ─── Cookies ───
+
+  /** Parsed request cookies (lazy). Malformed values never throw. */
+  get cookies(): Readonly<Record<string, string>> {
+    if (!this._cookies) {
+      this._cookies = parseCookieHeader(this._rawRequest.headers.get('cookie') ?? '');
+    }
+    return this._cookies;
+  }
+
+  /** Get a single cookie value by name. */
+  cookie(name: string): string | undefined {
+    return this.cookies[name];
   }
 
   // ─── Body ───
@@ -197,10 +258,33 @@ export class Request {
 
   // ─── Content Negotiation ───
 
-  /** Check if the client accepts JSON responses. */
+  /**
+   * Check if the client prefers a JSON response.
+   * True when the first acceptable media type is JSON (API clients, fetch with
+   * an explicit JSON Accept header). Browser navigations, whose Accept header
+   * starts with text/html and ends in a catch-all wildcard, return false.
+   */
   wantsJson(): boolean {
     const accept = this.header('accept') ?? '';
-    return accept.includes('application/json') || accept.includes('*/*');
+    const first = accept.split(',')[0]?.trim().toLowerCase() ?? '';
+    return first.includes('/json') || first.includes('+json');
+  }
+
+  /** True for XHR / fetch requests that want JSON rather than an HTML page. */
+  expectsJson(): boolean {
+    const accept = this.header('accept') ?? '';
+    if (this.wantsJson()) return true;
+    if (this.header('x-requested-with')?.toLowerCase() === 'xmlhttprequest') return true;
+    return !accept.includes('text/html');
+  }
+
+  /** True when the request arrived over HTTPS (directly or via a trusted proxy). */
+  isSecure(): boolean {
+    if (this.url.protocol === 'https:') return true;
+    if (this.trustsProxy()) {
+      return this.header('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase() === 'https';
+    }
+    return false;
   }
 
   /** Check if the request has a JSON content type. */
@@ -218,12 +302,28 @@ export class Request {
     return auth.slice(7);
   }
 
-  /** Get the client IP address. */
+  /**
+   * Get the client IP address.
+   *
+   * Uses the real socket address. Forwarding headers (X-Forwarded-For /
+   * X-Real-IP) are client-controlled and are only honoured when the app is
+   * configured to sit behind a reverse proxy (`app.trustProxy = true`).
+   */
   ip(): string {
-    return (
-      this.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-      this.header('x-real-ip') ??
-      '127.0.0.1'
-    );
+    if (this.trustsProxy()) {
+      const forwarded = this.header('x-forwarded-for')?.split(',')[0]?.trim();
+      if (forwarded) return forwarded;
+      const realIp = this.header('x-real-ip')?.trim();
+      if (realIp) return realIp;
+    }
+    return this._meta.remoteAddress ?? '127.0.0.1';
+  }
+
+  private trustsProxy(): boolean {
+    try {
+      return getConfigManager().get<boolean>('app.trustProxy', false) === true;
+    } catch {
+      return false;
+    }
   }
 }

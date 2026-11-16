@@ -44,6 +44,29 @@ export type EnvironmentDetails = EnvironmentContext;
 
 export class ErrorDisplayEngine {
   /**
+   * Coerce the loosely-typed (request | url, forgeRequest) arguments accepted by
+   * the public render methods into sanitized error context.
+   */
+  private static collectContext(requestOrUrl?: unknown, forgeReq?: unknown) {
+    let rawReq: globalThis.Request | undefined;
+    let fReq: Request | undefined;
+
+    if (requestOrUrl && typeof requestOrUrl === 'object' && 'headers' in (requestOrUrl as any)) {
+      rawReq = requestOrUrl as globalThis.Request;
+    } else if (typeof requestOrUrl === 'string') {
+      try {
+        rawReq = new globalThis.Request(new URL(requestOrUrl, 'http://localhost'));
+      } catch {}
+    }
+
+    if (forgeReq && typeof forgeReq === 'object' && 'headers' in (forgeReq as any)) {
+      fReq = forgeReq as Request;
+    }
+
+    return ContextCollector.collect(rawReq, fReq);
+  }
+
+  /**
    * Render a rich HTML error page for browser requests when APP_DEBUG=true.
    * Guaranteed to NEVER throw an unhandled exception.
    */
@@ -54,22 +77,7 @@ export class ErrorDisplayEngine {
   ): string {
     try {
       const normalized = ErrorNormalizer.normalize(error);
-      let rawReq: globalThis.Request | undefined;
-      let fReq: Request | undefined;
-
-      if (requestOrUrl && typeof requestOrUrl === 'object' && 'headers' in (requestOrUrl as any)) {
-        rawReq = requestOrUrl as globalThis.Request;
-      } else if (typeof requestOrUrl === 'string') {
-        try {
-          rawReq = new globalThis.Request(requestOrUrl);
-        } catch {}
-      }
-
-      if (forgeReq && typeof forgeReq === 'object' && 'headers' in (forgeReq as any)) {
-        fReq = forgeReq as Request;
-      }
-
-      const context = ContextCollector.collect(rawReq, fReq);
+      const context = this.collectContext(requestOrUrl, forgeReq);
       return HtmlErrorRenderer.renderDebug(normalized, context);
     } catch (renderError) {
       return FallbackRenderer.renderHtml(error, renderError);
@@ -94,25 +102,14 @@ export class ErrorDisplayEngine {
   static renderJson(error: unknown, requestOrUrl?: unknown, forgeReq?: unknown): unknown {
     try {
       const normalized = ErrorNormalizer.normalize(error);
-      let rawReq: globalThis.Request | undefined;
-      let fReq: Request | undefined;
-
-      if (requestOrUrl && typeof requestOrUrl === 'object' && 'headers' in (requestOrUrl as any)) {
-        rawReq = requestOrUrl as globalThis.Request;
-      } else if (typeof requestOrUrl === 'string') {
-        try {
-          rawReq = new globalThis.Request(requestOrUrl);
-        } catch {}
-      }
-
-      if (forgeReq && typeof forgeReq === 'object' && 'headers' in (forgeReq as any)) {
-        fReq = forgeReq as Request;
-      }
-
-      const context = ContextCollector.collect(rawReq, fReq);
+      const context = this.collectContext(requestOrUrl, forgeReq);
       return JsonErrorRenderer.renderDebug(normalized, context);
     } catch {
-      return { error: 'Internal Server Error', message: error instanceof Error ? error.message : String(error) };
+      let message = 'Internal Server Error';
+      try {
+        message = Redactor.redactString(error instanceof Error ? error.message : String(error));
+      } catch {}
+      return { error: 'Internal Server Error', message };
     }
   }
 
@@ -165,23 +162,7 @@ export class ErrorDisplayEngine {
    * Extract and sanitize request details for safe developer inspection.
    */
   static extractRequestDetails(requestOrUrl?: unknown, forgeReq?: unknown): RequestDetails {
-    let rawReq: globalThis.Request | undefined;
-    let fReq: Request | undefined;
-
-    if (requestOrUrl && typeof requestOrUrl === 'object' && 'headers' in (requestOrUrl as any)) {
-      rawReq = requestOrUrl as globalThis.Request;
-    } else if (typeof requestOrUrl === 'string') {
-      try {
-        rawReq = new globalThis.Request(requestOrUrl);
-      } catch {}
-    }
-
-    if (forgeReq && typeof forgeReq === 'object' && 'headers' in (forgeReq as any)) {
-      fReq = forgeReq as Request;
-    }
-
-    const context = ContextCollector.collect(rawReq, fReq);
-    return context.request;
+    return this.collectContext(requestOrUrl, forgeReq).request;
   }
 
   /**

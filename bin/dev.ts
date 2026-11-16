@@ -1,13 +1,15 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S npx tsx
 // bin/dev.ts
 // ─────────────────────────────────────────────────────────────────────
 // ForgeTS Development Supervisor.
 // Monitors backend source files and automatically restarts the server
 // process cleanly while preserving Vite HMR for frontend assets.
-// Zero external dependencies — built entirely on native Bun capabilities.
+// Built on Node's child_process and fs.watch; the worker inherits this
+// process's loader flags (tsx), so TypeScript sources run unchanged.
 // ─────────────────────────────────────────────────────────────────────
 
-import { spawn, type Subprocess } from 'bun';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { watch, type FSWatcher, existsSync } from 'node:fs';
 import { resolve, relative, join } from 'node:path';
 import { bootstrapEnv } from '@forge/core';
@@ -29,7 +31,7 @@ export class DevSupervisor {
   private watchDirs: string[];
   private env: Record<string, string | undefined>;
 
-  private child: Subprocess | null = null;
+  private child: ChildProcess | null = null;
   private watchers: FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private isTerminating = false;
@@ -95,21 +97,23 @@ export class DevSupervisor {
   public startChild(): void {
     if (this.isTerminating) return;
 
-    this.child = spawn([process.execPath, 'run', this.entryFile], {
-      stdout: 'inherit',
-      stderr: 'inherit',
-      stdin: 'inherit',
+    // Re-run the entry file with the same Node binary and loader flags (e.g. tsx)
+    this.child = spawn(process.execPath, [...process.execArgv, this.entryFile], {
+      stdio: 'inherit',
       cwd: this.rootDir,
-      env: this.env,
+      env: this.env as NodeJS.ProcessEnv,
     });
 
     const activeChild = this.child;
-    activeChild.exited.then((code) => {
+    activeChild.once('exit', (code) => {
       if (!this.isRestarting && !this.isTerminating) {
-        if (code !== 0) {
+        if (code !== 0 && code !== null) {
           console.error(`\n[ForgeTS] Server process exited with code ${code}. Watching for file fixes...`);
         }
       }
+    });
+    activeChild.once('error', (err) => {
+      console.error('[ForgeTS] Failed to start server process:', err.message);
     });
   }
 
@@ -122,19 +126,24 @@ export class DevSupervisor {
     const current = this.child;
     this.child = null;
 
+    if (current.exitCode !== null || current.signalCode !== null) return;
+
+    const exited = new Promise<void>((resolveExit) => {
+      current.once('exit', () => resolveExit());
+    });
+    const timeout = (ms: number) =>
+      new Promise<'timeout'>((r) => {
+        const timer = setTimeout(() => r('timeout'), ms);
+        timer.unref();
+      });
+
     try {
       current.kill('SIGTERM');
-      const exited = await Promise.race([
-        current.exited,
-        new Promise((r) => setTimeout(() => r('timeout'), 1000)),
-      ]);
+      const result = await Promise.race([exited, timeout(2000)]);
 
-      if (exited === 'timeout') {
+      if (result === 'timeout') {
         current.kill('SIGKILL');
-        await Promise.race([
-          current.exited,
-          new Promise((r) => setTimeout(r, 500)),
-        ]);
+        await Promise.race([exited, timeout(1000)]);
       }
     } catch {
       // Process may already have exited
@@ -152,10 +161,15 @@ export class DevSupervisor {
     }
 
     this.debounceTimer = setTimeout(async () => {
+      // A restart already in flight will pick up this change when it relaunches
+      if (this.isRestarting) return;
       this.isRestarting = true;
       console.log(`\n[ForgeTS] Source change detected: ${changedFile} -> Restarting backend...`);
-      await this.stopChild();
-      this.isRestarting = false;
+      try {
+        await this.stopChild();
+      } finally {
+        this.isRestarting = false;
+      }
       this.startChild();
     }, this.debounceMs);
   }
@@ -222,7 +236,7 @@ export class DevSupervisor {
 }
 
 // If invoked directly from CLI
-if (import.meta.main) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const supervisor = new DevSupervisor();
 
   const handleTermination = async () => {

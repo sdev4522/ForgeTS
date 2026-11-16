@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import '../../packages/forge/src/polyfills.js';
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect } from '../harness.js';
 import { Model, Column, MODEL_COLUMNS } from '../../packages/forge/src/database/index.js';
 import { ErrorDisplayEngine } from '../../packages/forge/src/http/ErrorDisplayEngine.js';
 import dbConfig from '../../config/database.js';

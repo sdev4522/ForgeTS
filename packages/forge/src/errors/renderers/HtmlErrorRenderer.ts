@@ -33,40 +33,40 @@ export class HtmlErrorRenderer {
    * Render clean, zero-leak production HTML error page.
    */
   static renderProduction(statusCode: number = 500, message: string = 'Something went wrong', errorId?: string): string {
-    const is404 = statusCode === 404;
-    const is503 = statusCode === 503;
-    const is403 = statusCode === 403;
-    const is401 = statusCode === 401;
+    const pages: Record<number, { heading: string; description: string }> = {
+      400: { heading: 'Bad Request', description: 'The request could not be understood by the server.' },
+      401: { heading: 'Unauthorized', description: 'Authentication is required to access this resource.' },
+      403: { heading: 'Access Forbidden', description: 'You do not have permission to access this resource.' },
+      404: { heading: 'Page Not Found', description: 'The page you are looking for does not exist or has been moved.' },
+      405: { heading: 'Method Not Allowed', description: 'This action is not supported for the requested page.' },
+      408: { heading: 'Request Timeout', description: 'The server timed out waiting for the request. Please try again.' },
+      413: { heading: 'Payload Too Large', description: 'The submitted data is larger than the server is willing to accept.' },
+      419: { heading: 'Page Expired', description: 'Your session has expired. Please refresh the page and try again.' },
+      422: { heading: 'Unprocessable Request', description: 'The submitted data was invalid. Please check your input and try again.' },
+      429: { heading: 'Too Many Requests', description: 'You have made too many requests. Please wait a moment and try again.' },
+      500: { heading: 'Something went wrong', description: 'An unexpected error occurred on our server. Please try again later.' },
+      502: { heading: 'Bad Gateway', description: 'The server received an invalid response from an upstream service. Please try again shortly.' },
+      503: {
+        heading: 'Service Temporarily Unavailable',
+        description: 'The server is temporarily unable to service your request due to maintenance or connection limits. Please try again shortly.',
+      },
+      504: { heading: 'Gateway Timeout', description: 'An upstream service took too long to respond. Please try again shortly.' },
+    };
 
-    const title = is404
-      ? '404 | Page Not Found'
-      : is503
-        ? '503 | Service Temporarily Unavailable'
-        : is403
-          ? '403 | Forbidden'
-          : is401
-            ? '401 | Unauthorized'
-            : `${statusCode} | Internal Server Error`;
+    const isClientError = statusCode >= 400 && statusCode < 500;
+    const page = pages[statusCode] ?? (isClientError
+      ? { heading: 'Request Error', description: 'The request could not be completed.' }
+      : pages[500]);
 
-    const heading = is404
-      ? 'Page Not Found'
-      : is503
-        ? 'Service Temporarily Unavailable'
-        : is403
-          ? 'Access Forbidden'
-          : is401
-            ? 'Unauthorized'
-            : 'Something went wrong';
-
-    const description = is404
-      ? 'The page you are looking for does not exist or has been moved.'
-      : is503
-        ? 'The server is temporarily unable to service your request due to maintenance or connection limits. Please try again shortly.'
-        : is403
-          ? 'You do not have permission to access this resource.'
-          : is401
-            ? 'Authentication is required to access this resource.'
-            : 'An unexpected error occurred on our server. Please try again later.';
+    const heading = page.heading;
+    const description = page.description;
+    const titleText =
+      statusCode === 500 || !pages[statusCode]
+        ? (isClientError ? heading : 'Internal Server Error')
+        : statusCode === 403
+          ? 'Forbidden'
+          : heading;
+    const title = `${statusCode} | ${titleText}`;
 
     const safeErrorId = errorId ? this.escapeHtml(errorId) : '';
 
@@ -768,6 +768,7 @@ export class HtmlErrorRenderer {
       case 403: return 'Forbidden';
       case 404: return 'Not Found';
       case 405: return 'Method Not Allowed';
+      case 413: return 'Payload Too Large';
       case 419: return 'Page Expired';
       case 422: return 'Unprocessable Entity';
       case 429: return 'Too Many Requests';

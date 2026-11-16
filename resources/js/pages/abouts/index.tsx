@@ -6,7 +6,7 @@ export default function AboutPage(_props: PageProps) {
     <div style={{ padding: '2rem', fontFamily: 'sans-serif', color: '#f8fafc', maxWidth: '800px', margin: '0 auto' }}>
       <h1>About ForgeTS</h1>
       <p style={{ color: '#94a3b8', lineHeight: 1.6 }}>
-        ForgeTS is a batteries-included, TypeScript-first web framework designed for Bun.
+        ForgeTS is a batteries-included, TypeScript-first web framework for Node.js.
         Featuring unified Active Record ORM, TC39 Stage 3 decorators, radix-trie routing,
         and high-speed React 19 server-side rendering.
       </p>

@@ -4,7 +4,7 @@
 // Verifies resolution across TypeScript, Bun runtime, and ESM conventions.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from '../harness.js';
 
 describe('ForgeTS First-Class Application Import Aliases', () => {
   test('1. Controller alias: @/controllers and @app/controllers resolve correctly', async () => {
@@ -68,7 +68,7 @@ describe('ForgeTS First-Class Application Import Aliases', () => {
   });
 
   test('7. ESM .js specifiers map transparently to .ts source files', async () => {
-    const controller = await import('@/controllers/AboutController.js');
-    expect(controller.AboutController).toBeDefined();
+    const controller = await import('@/controllers/WelcomeController.js');
+    expect(controller.WelcomeController).toBeDefined();
   });
 });

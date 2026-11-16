@@ -20,9 +20,10 @@ export {
 } from './core/Application.js';
 
 // ─── HTTP ───
-export { Request, ValidationException } from './http/Request.js';
+export { Request, ValidationException, parseCookieHeader, type RequestMeta } from './http/Request.js';
+export { serve, fileResponse, mimeTypeFor, type NodeServerHandle, type ConnectionInfo } from './http/NodeServer.js';
 export { Validator, ValidationError, type ValidationRules } from './http/Validator.js';
-export { ForgeResponse, isValidHttpStatus, normalizeHttpStatus, type CookieOptions } from './http/Response.js';
+export { ForgeResponse, isValidHttpStatus, normalizeHttpStatus, escapeHtml, type CookieOptions } from './http/Response.js';
 export { serializeViewData } from './http/serializer.js';
 export { CsrfMiddleware } from './http/CsrfMiddleware.js';
 export { RateLimiter, RateLimit, createRateLimitMiddleware } from './http/RateLimiter.js';
@@ -78,10 +79,10 @@ export {
 } from './errors/index.js';
 
 // ─── Security ───
-export { Hash, hash } from './security/hash.js';
+export { Hash, hash, type HashOptions } from './security/hash.js';
 
 // ─── SSR & Vite ───
-export { getViteDevServer, isViteAssetRequest } from './ssr/ViteDevServer.js';
+export { getViteDevServer, closeViteDevServer, isViteAssetRequest } from './ssr/ViteDevServer.js';
 
 // ─── Routing ───
 export { Router } from './routing/Router.js';
@@ -105,7 +106,7 @@ export { Injectable, type InjectableOptions } from './container/decorators.js';
 export { env } from './config/env.js';
 export { defineConfig } from './config/defineConfig.js';
 export { config, initConfig, getConfigManager } from './config/ConfigManager.js';
-export { bootstrapEnv, resetBootstrapEnv } from './config/bootstrapEnv.js';
+export { bootstrapEnv, resetBootstrapEnv, parseEnv } from './config/bootstrapEnv.js';
 
 // ─── View ───
 export { ViewEngine } from './view/ViewEngine.js';

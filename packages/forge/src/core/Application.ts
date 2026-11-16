@@ -7,15 +7,16 @@
 // 2. Load configuration
 // 3. Register routes from Router instances
 // 4. Build the radix-trie route table
-// 5. Start the HTTP server (Bun-native)
+// 5. Start the HTTP server (node:http)
 // 6. Handle each request: resolve route → build pipeline → execute
 //
-// PERFORMANCE: Bun's native HTTP server is used directly — no Express,
+// PERFORMANCE: Node's built-in HTTP server is used directly — no Express,
 // no Koa, no abstraction layers. Request handling is a single function
 // that resolves the route from the trie and executes the pipeline.
 // ─────────────────────────────────────────────────────────────────────
 
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { serve, fileResponse, type NodeServerHandle, type ConnectionInfo } from '../http/NodeServer.js';
 import { Container } from '../container/Container.js';
 import { Router, type RegisteredRoute } from '../routing/Router.js';
 import { RouteResolver, type ResolvedRoute } from '../routing/RouteResolver.js';
@@ -53,7 +54,7 @@ import { env } from '../config/env.js';
 import { ViewEngine } from '../view/ViewEngine.js';
 import { ReactEngine } from '../ssr/ReactEngine.js';
 import { getTimezone } from './time.js';
-import { verifyDatabaseConnectionOnBoot } from '../database/Connection.js';
+import { verifyDatabaseConnectionOnBoot, closeDatabaseConnections } from '../database/Connection.js';
 import { EventDispatcher, setEventDispatcher } from '../events/EventDispatcher.js';
 import type { HttpMethod } from '../routing/decorators.js';
 import type { MiddlewareClass } from '../http/Middleware.js';
@@ -78,7 +79,7 @@ export class Application {
   private providers: Provider[] = [];
   private globalMiddleware: MiddlewareClass[] = [];
   private booted = false;
-  private server: ReturnType<typeof Bun.serve> | null = null;
+  private server: NodeServerHandle | null = null;
 
   constructor(private rootDir: string = process.cwd()) {
     this.container = new Container();
@@ -206,9 +207,11 @@ export class Application {
   /**
    * Start the HTTP server.
    *
-   * PERFORMANCE: Uses Bun.serve() directly — the fastest HTTP server
-   * available in the JS ecosystem. No Express, no middleware framework.
+   * Uses node:http directly through a thin Fetch-API adapter.
    * Each request is handled by a single function: resolve → pipeline → respond.
+   *
+   * The server binds to `app.host` (APP_HOST, default 127.0.0.1). Set
+   * APP_HOST=0.0.0.0 to accept connections from other machines / containers.
    */
   async start(port?: number): Promise<void> {
     this.boot();
@@ -217,21 +220,33 @@ export class Application {
     await verifyDatabaseConnectionOnBoot();
 
     const listenPort = port ?? this.configManager.get<number>('app.port', 3000);
+    const hostname = this.configManager.get<string>('app.host', '127.0.0.1') || '127.0.0.1';
+    const maxBodySize = this.configManager.get<number>('app.maxBodySize', 10 * 1024 * 1024);
+
+    if (process.env.NODE_ENV === 'production' && this.isDebugEnabled()) {
+      console.warn(
+        '[ForgeTS] WARNING: APP_DEBUG is enabled in production. Stack traces and source code ' +
+          'will be shown to clients. Set APP_DEBUG=false.',
+      );
+    }
 
     try {
-      const server = Bun.serve({
+      const server = await serve({
         port: listenPort,
-        fetch: (rawRequest: globalThis.Request) => this.handleRequest(rawRequest),
-        error: (err: Error) => this.handleError(err),
+        hostname,
+        maxBodySize,
+        fetch: (rawRequest, info) => this.handleRequest(rawRequest, info),
+        onError: (err) => this.handleError(err),
       });
       this.server = server;
 
       const routeCount = this.resolver.count;
+      const displayHost = hostname === '0.0.0.0' || hostname === '::' ? 'localhost' : hostname;
       console.log('');
       console.log(`  ForgeTS v${Application.VERSION}`);
-      console.log(`  ├─ Server:  http://localhost:${server.port}`);
+      console.log(`  ├─ Server:  http://${displayHost}:${server.port}`);
       console.log(`  ├─ Routes:  ${routeCount} registered`);
-      console.log(`  ├─ Runtime: Bun ${Bun.version}`);
+      console.log(`  ├─ Runtime: Node.js ${process.version}`);
       console.log(`  └─ Ready in ${Math.round(performance.now())}ms`);
       console.log('');
     } catch (err: any) {
@@ -248,26 +263,45 @@ export class Application {
    */
   async stop(): Promise<void> {
     if (this.server) {
-      this.server.stop(true);
+      await this.server.stop();
       this.server = null;
     }
 
     try {
-      const { getViteDevServer } = await import('../ssr/ViteDevServer.js');
-      const vite = await getViteDevServer();
-      if (vite) {
-        await vite.close();
-      }
+      const { closeViteDevServer } = await import('../ssr/ViteDevServer.js');
+      await closeViteDevServer();
     } catch {
       // Non-fatal if Vite dev server was not initialized
     }
+
+    // Release database pools so the process can exit cleanly
+    await closeDatabaseConnections();
   }
 
   /**
-   * Return the active Bun.serve server instance if started.
+   * Return the active server handle (node:http server, port, hostname) if started.
    */
-  getServer(): ReturnType<typeof Bun.serve> | null {
+  getServer(): NodeServerHandle | null {
     return this.server;
+  }
+
+  /**
+   * Dispatch a Fetch-API Request through the application and return the Response.
+   * Public entry point for tests and custom server integrations.
+   */
+  handle(rawRequest: globalThis.Request, info?: ConnectionInfo): Promise<globalThis.Response> {
+    return this.handleRequest(rawRequest, info);
+  }
+
+  private isDebugEnabled(): boolean {
+    return process.env.APP_DEBUG !== undefined
+      ? env.boolean('APP_DEBUG', false)
+      : (this.configManager?.get<boolean>('app.debug') ?? false);
+  }
+
+  /** True when `target` is `root` itself or a path strictly inside it. */
+  private isWithin(root: string, target: string): boolean {
+    return target === root || target.startsWith(root + sep);
   }
 
   /**
@@ -278,9 +312,11 @@ export class Application {
 
     // Explicitly block sensitive framework source files, configs, process secrets, & internal dirs
     if (
+      normalized.includes('\0') ||
       normalized.includes('.env') ||
       normalized.includes('.git') ||
       normalized.includes('package.json') ||
+      normalized.includes('package-lock.json') ||
       normalized.includes('tsconfig.json') ||
       normalized.includes('bun.lock') ||
       normalized.includes('yarn.lock') ||
@@ -289,7 +325,9 @@ export class Application {
       normalized.startsWith('/app/') ||
       normalized.startsWith('/database/') ||
       normalized.startsWith('/bootstrap/') ||
-      normalized.startsWith('/bin/')
+      normalized.startsWith('/bin/') ||
+      normalized.startsWith('/storage/') ||
+      normalized.startsWith('/tests/')
     ) {
       return false;
     }
@@ -307,15 +345,154 @@ export class Application {
       );
     }
 
+    // Vite absolute-filesystem URLs: only files under resources/ or node_modules/
+    // may be requested, so /@fs/<root>/config/... cannot bypass the blocks above.
+    if (normalized.startsWith('/@fs/')) {
+      const target = resolve(normalized.slice('/@fs'.length));
+      return (
+        this.isWithin(resolve(this.rootDir, 'resources'), target) ||
+        this.isWithin(resolve(this.rootDir, 'node_modules'), target)
+      );
+    }
+
     return (
       normalized.startsWith('/public/') ||
       normalized.startsWith('/resources/') ||
       normalized.startsWith('/node_modules/') ||
       normalized.startsWith('/@vite/') ||
       normalized.startsWith('/@id/') ||
-      normalized.startsWith('/@fs/') ||
       normalized.startsWith('/@react-refresh')
     );
+  }
+
+  /**
+   * Try to serve a static asset for an unmatched GET/HEAD request.
+   * Returns null when nothing may (or can) be served for the path.
+   */
+  private async serveStatic(path: string): Promise<globalThis.Response | null> {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      return null;
+    }
+    if (decoded.includes('\0')) return null;
+
+    const relativePath = decoded.startsWith('/') ? decoded.slice(1) : decoded;
+    const publicRoot = resolve(this.rootDir, 'public');
+    const fromPublic = async () => {
+      const target = resolve(publicRoot, relativePath);
+      // Never expose dotfiles from public/, and stay inside the directory
+      if (!this.isWithin(publicRoot, target) || target === publicRoot) return null;
+      if (relativePath.split('/').some((part) => part.startsWith('.'))) return null;
+      return fileResponse(target);
+    };
+
+    if (process.env.NODE_ENV === 'production') {
+      if (!this.isAllowedStaticPath(decoded, true)) return null;
+
+      const distRoot = resolve(this.rootDir, 'dist', 'client');
+      const distTarget = resolve(distRoot, relativePath);
+      if (this.isWithin(distRoot, distTarget) && distTarget !== distRoot) {
+        const cacheControl = decoded.startsWith('/assets/')
+          ? 'public, max-age=31536000, immutable'
+          : 'public, max-age=3600';
+        const res = await fileResponse(distTarget, { 'Cache-Control': cacheControl });
+        if (res) return res;
+      }
+      return fromPublic();
+    }
+
+    // Dev mode: serve whitelisted /resources/, /node_modules/, /@vite/, /public/
+    if (this.isAllowedStaticPath(decoded, false)) {
+      if (!decoded.startsWith('/public/')) {
+        try {
+          const { getViteDevServer } = await import('../ssr/ViteDevServer.js');
+          const vite = await getViteDevServer();
+          if (vite) {
+            const result = await vite.transformRequest(path);
+            if (result) {
+              return new globalThis.Response(result.code, {
+                headers: {
+                  'Content-Type': 'application/javascript; charset=utf-8',
+                  'Cache-Control': 'no-cache',
+                },
+              });
+            }
+          }
+        } catch {
+          // Fall through to raw file serving / 404
+        }
+      }
+
+      const devTarget = resolve(this.rootDir, relativePath);
+      const allowedRoots = ['resources', 'public', 'node_modules'].map((dir) => resolve(this.rootDir, dir));
+      // Untransformed TypeScript/JSX source is never sent to the browser as-is
+      const isSource = /\.(tsx?|jsx)$/.test(decoded);
+      if (!isSource && allowedRoots.some((root) => this.isWithin(root, devTarget) && devTarget !== root)) {
+        const res = await fileResponse(devTarget, { 'Cache-Control': 'no-cache' });
+        if (res) return res;
+      }
+    }
+
+    // Fallback for root public files (e.g. GET /favicon.png)
+    return fromPublic();
+  }
+
+  /**
+   * Parse the request body for write methods into a plain value.
+   * Supports JSON, URL-encoded forms, and multipart forms (files arrive as File objects).
+   * Returns a 400 response when the body is malformed.
+   */
+  private async parseBody(
+    rawRequest: globalThis.Request,
+    req: Request,
+  ): Promise<globalThis.Response | null> {
+    const contentType = (rawRequest.headers.get('content-type') ?? '').toLowerCase();
+
+    const collect = (entries: Iterable<[string, unknown]>): Record<string, unknown> => {
+      // Null-prototype accumulator: `__proto__` etc. are stored as ordinary keys.
+      // Repeated keys (and `name[]` keys) become arrays.
+      const out: Record<string, unknown> = Object.create(null);
+      for (const [rawKey, value] of entries) {
+        const isList = rawKey.endsWith('[]');
+        const key = isList ? rawKey.slice(0, -2) : rawKey;
+        if (key in out) {
+          const existing = out[key];
+          out[key] = Array.isArray(existing) ? [...existing, value] : [existing, value];
+        } else {
+          out[key] = isList ? [value] : value;
+        }
+      }
+      return { ...out };
+    };
+
+    if (contentType.includes('application/json')) {
+      try {
+        const text = await rawRequest.text();
+        if (text.trim() !== '') {
+          req._setBody(JSON.parse(text));
+        }
+      } catch {
+        return new ForgeResponse().badRequest('Invalid JSON body').toNativeResponse();
+      }
+    } else if (contentType.includes('application/x-www-form-urlencoded')) {
+      try {
+        const text = await rawRequest.text();
+        req._setBody(collect(new URLSearchParams(text).entries()));
+      } catch {
+        return new ForgeResponse().badRequest('Invalid form body').toNativeResponse();
+      }
+    } else if (contentType.includes('multipart/form-data')) {
+      try {
+        const form = await rawRequest.formData();
+        req._setBody(collect(form.entries() as Iterable<[string, unknown]>));
+      } catch {
+        return new ForgeResponse().badRequest('Invalid multipart form body').toNativeResponse();
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -323,98 +500,35 @@ export class Application {
    *
    * This is the hot path — every allocation here matters.
    */
-  private async handleRequest(rawRequest: globalThis.Request): Promise<globalThis.Response> {
+  private async handleRequest(
+    rawRequest: globalThis.Request,
+    info?: ConnectionInfo,
+  ): Promise<globalThis.Response> {
     try {
       const url = new URL(rawRequest.url);
-      const method = rawRequest.method as HttpMethod;
+      const method = rawRequest.method.toUpperCase() as HttpMethod;
       const path = url.pathname;
 
       // 1. Resolve route from radix trie
       const resolved = this.resolver.resolve(method, path);
 
       if (!resolved) {
-        // Try serving static asset ONLY if path is explicitly whitelisted and within allowed boundaries
+        // Try serving a static asset ONLY if path is explicitly whitelisted and within allowed boundaries
         if (method === 'GET' || method === 'HEAD') {
-          const relativePath = path.startsWith('/') ? path.slice(1) : path;
+          const asset = await this.serveStatic(path);
+          if (asset) return asset;
+        }
 
-          if (process.env.NODE_ENV === 'production') {
-            if (this.isAllowedStaticPath(path, true)) {
-              const distFilePath = join(this.rootDir, 'dist', 'client', relativePath);
-              const resolvedDist = resolve(distFilePath);
-              const allowedDistRoot = resolve(join(this.rootDir, 'dist', 'client'));
-
-              if (resolvedDist.startsWith(allowedDistRoot)) {
-                const distFile = Bun.file(resolvedDist);
-                if (await distFile.exists()) {
-                  return new globalThis.Response(distFile);
-                }
-              }
-
-              const publicFilePath = join(this.rootDir, 'public', relativePath);
-              const resolvedPublic = resolve(publicFilePath);
-              const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
-
-              if (resolvedPublic.startsWith(allowedPublicRoot)) {
-                const publicFile = Bun.file(resolvedPublic);
-                if (await publicFile.exists()) {
-                  return new globalThis.Response(publicFile);
-                }
-              }
-            }
-          } else {
-            // Dev mode: serve whitelisted /resources/, /node_modules/, /@vite/, /public/
-            if (this.isAllowedStaticPath(path, false)) {
-              try {
-                const { getViteDevServer } = await import('../ssr/ViteDevServer.js');
-                const vite = await getViteDevServer();
-                if (vite) {
-                  const result = await vite.transformRequest(path);
-                  if (result) {
-                    return new globalThis.Response(result.code, {
-                      headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
-                    });
-                  }
-                }
-              } catch {}
-
-              const devFilePath = join(this.rootDir, relativePath);
-              const resolvedDev = resolve(devFilePath);
-              const allowedResourcesRoot = resolve(join(this.rootDir, 'resources'));
-              const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
-              const allowedNodeModulesRoot = resolve(join(this.rootDir, 'node_modules'));
-
-              if (
-                resolvedDev.startsWith(allowedResourcesRoot) ||
-                resolvedDev.startsWith(allowedPublicRoot) ||
-                resolvedDev.startsWith(allowedNodeModulesRoot)
-              ) {
-                const devFile = Bun.file(resolvedDev);
-                if (await devFile.exists()) {
-                  if (path.endsWith('.tsx') || path.endsWith('.ts') || path.endsWith('.jsx')) {
-                    const content = await devFile.text();
-                    const transpiler = new Bun.Transpiler({ loader: 'tsx', target: 'browser' });
-                    const js = transpiler.transformSync(content);
-                    return new globalThis.Response(js, {
-                      headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
-                    });
-                  }
-                  return new globalThis.Response(devFile);
-                }
-              }
-            }
-
-            // Fallback for root public files (e.g. GET /favicon.png)
-            const publicFilePath = join(this.rootDir, 'public', relativePath);
-            const resolvedPublic = resolve(publicFilePath);
-            const allowedPublicRoot = resolve(join(this.rootDir, 'public'));
-
-            if (resolvedPublic.startsWith(allowedPublicRoot)) {
-              const publicFile = Bun.file(resolvedPublic);
-              if (await publicFile.exists()) {
-                return new globalThis.Response(publicFile);
-              }
-            }
-          }
+        // Path exists under other HTTP methods → 405 with Allow header
+        const allowed = this.resolver.allowedMethods(path);
+        if (allowed.length > 0) {
+          return this.handleError(
+            new MethodNotAllowedException(
+              `The ${method} method is not supported for ${path}. Supported methods: ${allowed.join(', ')}.`,
+              { headers: { Allow: allowed.join(', ') } },
+            ),
+            rawRequest,
+          );
         }
 
         // 404 for all forbidden, un-whitelisted, or missing routes/files
@@ -427,40 +541,20 @@ export class Application {
       // 2. Create the framework Request
       let req: Request | undefined;
       try {
-        req = new Request(rawRequest, resolved.params);
+        const { route } = resolved;
+        req = new Request(rawRequest, resolved.params, {
+          remoteAddress: info?.remoteAddress,
+          route,
+        });
 
-        // 3. Parse body for write methods (lazy — only if needed)
-        if (['POST', 'PUT', 'PATCH'].includes(method)) {
-          const contentType = rawRequest.headers.get('content-type') ?? '';
-          if (contentType.includes('application/json')) {
-            try {
-              const body = await rawRequest.json();
-              req._setBody(body);
-            } catch {
-              return new ForgeResponse()
-                .badRequest('Invalid JSON body')
-                .toNativeResponse();
-            }
-          } else if (contentType.includes('application/x-www-form-urlencoded')) {
-            try {
-              const text = await rawRequest.text();
-              const params = new URLSearchParams(text);
-              const bodyObj: Record<string, any> = {};
-              params.forEach((v, k) => (bodyObj[k] = v));
-              req._setBody(bodyObj);
-            } catch {
-              return new ForgeResponse()
-                .badRequest('Invalid form body')
-                .toNativeResponse();
-            }
-          }
+        // 3. Parse body for write methods
+        if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+          const badBody = await this.parseBody(rawRequest, req);
+          if (badBody) return badBody;
         }
 
         // 4. Resolve the controller from the container
-        const { route } = resolved;
-        const controller = this.container.has(route.controllerClass)
-          ? this.container.resolve(route.controllerClass)
-          : new route.controllerClass();
+        const controller = this.container.resolve(route.controllerClass);
 
         // 5. Build the middleware pipeline and execute
         const allMiddleware = [...this.globalMiddleware, ...route.middleware];
@@ -486,11 +580,7 @@ export class Application {
             return result;
           }
           if (result instanceof globalThis.Response) {
-            const forgeRes = new ForgeResponse(this.viewEngine, this.reactEngine);
-            forgeRes.status(result.status);
-            result.headers.forEach((val, key) => forgeRes.header(key, val));
-            (forgeRes as any)._body = result.body;
-            return forgeRes;
+            return ForgeResponse.fromNative(result);
           }
           if (result !== undefined) {
             return new ForgeResponse().json(result);
@@ -556,17 +646,17 @@ export class Application {
     forgeReq?: Request,
     routeInfo?: ResolvedRoute | null,
   ): globalThis.Response {
-    // 1. Normalize the error
-    const normalized = ErrorNormalizer.normalize(error);
+    // 1. Determine if debug mode is active
+    const isDebug = this.isDebugEnabled();
 
-    // 2. Collect contextual request, route, and environment metadata
-    const context = ContextCollector.collect(rawRequest, forgeReq, routeInfo);
+    // 2. Normalize the error. Outside debug mode the expensive diagnostics
+    //    (stack parsing, source file reads) are skipped: none of it is rendered.
+    const normalized = ErrorNormalizer.normalize(error, { diagnostics: isDebug });
 
-    // 3. Determine if debug mode is active
-    const isDebug =
-      process.env.APP_DEBUG !== undefined
-        ? env.boolean('APP_DEBUG', false)
-        : (this.configManager?.get<boolean>('app.debug') ?? false);
+    // 3. Collect contextual request, route, and environment metadata
+    const context = isDebug
+      ? ContextCollector.collect(rawRequest, forgeReq, routeInfo)
+      : ContextCollector.collectMinimal(rawRequest, forgeReq);
     context.environment.appDebug = isDebug;
 
     // 4. Log errors to server console with Error ID correlation
@@ -579,6 +669,23 @@ export class Application {
       }
     }
 
+    const headers = new Headers();
+    const extraHeaders = (error as any)?.headers;
+    if (extraHeaders && typeof extraHeaders === 'object' && !(extraHeaders instanceof Headers)) {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (typeof value === 'string') {
+          try {
+            headers.set(key, value);
+          } catch {
+            // Ignore invalid header names/values supplied on the error
+          }
+        }
+      }
+    }
+    headers.set('X-Error-Id', context.errorId);
+    headers.set('Cache-Control', 'no-store');
+    headers.set('X-Content-Type-Options', 'nosniff');
+
     // 5. Content negotiation: HTML browser page vs JSON API response
     const prefersHtml = ContentNegotiator.prefersHtml(rawRequest, context.request.path);
 
@@ -587,13 +694,8 @@ export class Application {
         ? HtmlErrorRenderer.renderDebug(normalized, context)
         : HtmlErrorRenderer.renderProduction(normalized.statusCode, normalized.message, context.errorId);
 
-      return new globalThis.Response(html, {
-        status: normalized.statusCode,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'X-Error-Id': context.errorId,
-        },
-      });
+      headers.set('Content-Type', 'text/html; charset=utf-8');
+      return new globalThis.Response(html, { status: normalized.statusCode, headers });
     }
 
     // JSON response (API / non-HTML requests)
@@ -601,12 +703,10 @@ export class Application {
       ? JsonErrorRenderer.renderDebug(normalized, context)
       : JsonErrorRenderer.renderProduction(normalized, context);
 
+    headers.set('Content-Type', 'application/json; charset=utf-8');
     return new globalThis.Response(JSON.stringify(jsonPayload), {
       status: normalized.statusCode,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'X-Error-Id': context.errorId,
-      },
+      headers,
     });
   }
 

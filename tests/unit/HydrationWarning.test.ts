@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect, mock } from '../harness.js';
 
 describe('Hydration Mismatch Console Guidance Wrapper', () => {
   test('logs clearer ForgeTS guidance alongside React original hydration warning in DEV mode', () => {

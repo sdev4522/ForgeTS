@@ -6,6 +6,7 @@
 
 import { Redactor } from './Redactor.js';
 import { env } from '../config/env.js';
+import { getConfigManager } from '../config/ConfigManager.js';
 import type { Request } from '../http/Request.js';
 import type { ResolvedRoute } from '../routing/RouteResolver.js';
 
@@ -56,6 +57,54 @@ export class ContextCollector {
     } catch {
       return `err_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
     }
+  }
+
+  /**
+   * Collect only what a production (non-debug) error response needs:
+   * an error ID plus method/path. No header, body, or environment inspection.
+   */
+  static collectMinimal(rawRequest?: globalThis.Request, forgeReq?: Request): ErrorContext {
+    const errorId = this.generateErrorId();
+    let method = 'GET';
+    let url = '/';
+    let path = '/';
+
+    try {
+      if (rawRequest && typeof rawRequest === 'object' && 'headers' in rawRequest) {
+        method = rawRequest.method || method;
+        url = rawRequest.url || url;
+        path = new URL(url, 'http://localhost').pathname;
+      } else if (forgeReq && typeof forgeReq === 'object') {
+        method = forgeReq.method ?? method;
+        path = forgeReq.path ?? path;
+        url = forgeReq.fullUrl ?? path;
+      }
+    } catch {
+      // Non-fatal if request parsing fails
+    }
+
+    return {
+      errorId,
+      request: {
+        id: errorId,
+        method,
+        url: path,
+        path,
+        queryParams: {},
+        routeParams: {},
+        headers: {},
+        body: undefined,
+        contentType: '',
+        timestamp: '',
+      },
+      route: { pattern: null, controller: null, action: null, params: {}, middleware: [] },
+      environment: {
+        runtime: `Node.js ${process.version}`,
+        nodeEnv: process.env.NODE_ENV ?? 'development',
+        appDebug: false,
+        timezone: 'UTC',
+      },
+    };
   }
 
   /**
@@ -148,7 +197,7 @@ export class ContextCollector {
     // 3. Environment details
     const appDebug = env.boolean('APP_DEBUG', false);
     const environmentContext: EnvironmentContext = {
-      runtime: typeof Bun !== 'undefined' ? `Bun ${Bun.version}` : `Node ${process.version}`,
+      runtime: `Node.js ${process.version}`,
       nodeEnv: process.env.NODE_ENV ?? 'development',
       appDebug,
       timezone: this.getTimezoneName(),
@@ -164,7 +213,6 @@ export class ContextCollector {
 
   private static getTimezoneName(): string {
     try {
-      const { getConfigManager } = require('../config/ConfigManager.js');
       const cfg = getConfigManager();
       if (cfg) {
         return cfg.get('app.timezone', 'UTC');

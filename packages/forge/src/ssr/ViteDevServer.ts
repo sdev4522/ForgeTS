@@ -27,6 +27,17 @@ export async function getViteDevServer(): Promise<ViteServer | null> {
 }
 
 /**
+ * Close the Vite dev server if one was started. Never starts one.
+ */
+export async function closeViteDevServer(): Promise<void> {
+  if (viteInstance) {
+    const instance = viteInstance;
+    viteInstance = null;
+    await instance.close();
+  }
+}
+
+/**
  * Check if an incoming request path is a Vite asset or HMR request.
  */
 export function isViteAssetRequest(path: string): boolean {

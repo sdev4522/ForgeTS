@@ -22,12 +22,20 @@ export interface ResolvedRoute {
   params: Record<string, string>;
 }
 
+interface RouteEntry {
+  route: RegisteredRoute;
+  /** Parameter names in path order, as declared by THIS route. */
+  paramNames: string[];
+}
+
 interface TrieNode {
   children: Map<string, TrieNode>;
-  paramChild: { node: TrieNode; paramName: string } | null;
-  wildcardChild: { node: TrieNode; paramName: string } | null;
-  handlers: Map<HttpMethod, RegisteredRoute>;
+  paramChild: TrieNode | null;
+  wildcardChild: TrieNode | null;
+  handlers: Map<HttpMethod, RouteEntry>;
 }
+
+const ALL_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
 // ─── Trie Implementation ───
 
@@ -40,6 +48,14 @@ function createNode(): TrieNode {
   };
 }
 
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export class RouteResolver {
   private root: TrieNode = createNode();
   private routeCount = 0;
@@ -47,27 +63,28 @@ export class RouteResolver {
   /**
    * Add a route to the trie.
    * Called once at boot time for each registered route.
+   *
+   * Parameter names are stored per route (not per trie node), so sibling
+   * routes such as `/users/:id` and `/users/:userId/posts` each receive
+   * the names they declared.
    */
   add(route: RegisteredRoute): void {
     const segments = this.splitPath(route.fullPath);
+    const paramNames: string[] = [];
     let node = this.root;
 
     for (const segment of segments) {
       if (segment.startsWith('*')) {
         // Wildcard catch-all — must be the last segment
-        const paramName = segment.slice(1) || 'wildcard';
-        if (!node.wildcardChild) {
-          node.wildcardChild = { node: createNode(), paramName };
-        }
-        node = node.wildcardChild.node;
+        paramNames.push(segment.slice(1) || 'wildcard');
+        node.wildcardChild ??= createNode();
+        node = node.wildcardChild;
         break;
       } else if (segment.startsWith(':')) {
         // Dynamic parameter
-        const paramName = segment.slice(1);
-        if (!node.paramChild) {
-          node.paramChild = { node: createNode(), paramName };
-        }
-        node = node.paramChild.node;
+        paramNames.push(segment.slice(1));
+        node.paramChild ??= createNode();
+        node = node.paramChild;
       } else {
         // Static segment
         let child = node.children.get(segment);
@@ -79,54 +96,69 @@ export class RouteResolver {
       }
     }
 
-    // If path is just '/', we store at root
     if (node.handlers.has(route.method)) {
       console.warn(
         `[ForgeTS] Duplicate route: ${route.method} ${route.fullPath}. ` +
           `The later registration will overwrite the earlier one.`,
       );
+    } else {
+      this.routeCount++;
     }
 
-    node.handlers.set(route.method, route);
-    this.routeCount++;
+    node.handlers.set(route.method, { route, paramNames });
   }
 
   /**
    * Resolve an incoming request to a registered route.
-   * Returns the matched route and extracted parameters, or null.
+   * Returns the matched route and extracted (URL-decoded) parameters, or null.
    *
    * PERFORMANCE: Worst-case O(n) where n = number of path segments.
    * Does NOT scale with total route count — that's the advantage of a trie.
    */
   resolve(method: HttpMethod, path: string): ResolvedRoute | null {
     const segments = this.splitPath(path);
-    const params: Record<string, string> = {};
+    return this.search(this.root, segments, 0, [], method);
+  }
 
-    const result = this.search(this.root, segments, 0, params, method);
-    return result;
+  /**
+   * List the HTTP methods registered for a path (used for 405 + Allow header).
+   */
+  allowedMethods(path: string): HttpMethod[] {
+    const segments = this.splitPath(path);
+    const allowed: HttpMethod[] = [];
+    for (const method of ALL_METHODS) {
+      if (method === 'HEAD') continue;
+      if (this.search(this.root, segments, 0, [], method)) allowed.push(method);
+    }
+    if (allowed.includes('GET')) allowed.push('HEAD');
+    return allowed;
+  }
+
+  private match(node: TrieNode, method: HttpMethod, values: string[]): ResolvedRoute | null {
+    let entry = node.handlers.get(method);
+    // HEAD falls back to the GET handler
+    if (!entry && method === 'HEAD') {
+      entry = node.handlers.get('GET');
+    }
+    if (!entry) return null;
+
+    const params: Record<string, string> = {};
+    for (let i = 0; i < entry.paramNames.length; i++) {
+      params[entry.paramNames[i]] = values[i] ?? '';
+    }
+    return { route: entry.route, params };
   }
 
   private search(
     node: TrieNode,
     segments: string[],
     index: number,
-    params: Record<string, string>,
+    values: string[],
     method: HttpMethod,
   ): ResolvedRoute | null {
     // Base case: consumed all segments
     if (index === segments.length) {
-      const route = node.handlers.get(method);
-      if (route) {
-        return { route, params: { ...params } };
-      }
-      // Check if HEAD can fallback to GET
-      if (method === 'HEAD') {
-        const getRoute = node.handlers.get('GET');
-        if (getRoute) {
-          return { route: getRoute, params: { ...params } };
-        }
-      }
-      return null;
+      return this.match(node, method, values);
     }
 
     const segment = segments[index];
@@ -134,29 +166,24 @@ export class RouteResolver {
     // 1. Try static match first (fastest)
     const staticChild = node.children.get(segment);
     if (staticChild) {
-      const result = this.search(staticChild, segments, index + 1, params, method);
+      const result = this.search(staticChild, segments, index + 1, values, method);
       if (result) return result;
     }
 
     // 2. Try parameter match
     if (node.paramChild) {
-      const { node: paramNode, paramName } = node.paramChild;
-      params[paramName] = segment;
-      const result = this.search(paramNode, segments, index + 1, params, method);
+      values.push(safeDecode(segment));
+      const result = this.search(node.paramChild, segments, index + 1, values, method);
       if (result) return result;
-      delete params[paramName]; // backtrack
+      values.pop(); // backtrack
     }
 
-    // 3. Try wildcard match (catch-all)
+    // 3. Try wildcard match (catch-all): captures everything from this segment onwards
     if (node.wildcardChild) {
-      const { node: wildcardNode, paramName } = node.wildcardChild;
-      // Wildcard captures everything from this segment onwards
-      params[paramName] = segments.slice(index).join('/');
-      const route = wildcardNode.handlers.get(method);
-      if (route) {
-        return { route, params: { ...params } };
-      }
-      delete params[paramName]; // backtrack
+      values.push(segments.slice(index).map(safeDecode).join('/'));
+      const result = this.match(node.wildcardChild, method, values);
+      if (result) return result;
+      values.pop(); // backtrack
     }
 
     return null;
@@ -187,17 +214,17 @@ export class RouteResolver {
   }
 
   private collectRoutes(node: TrieNode, routes: RegisteredRoute[]): void {
-    for (const route of node.handlers.values()) {
-      routes.push(route);
+    for (const entry of node.handlers.values()) {
+      routes.push(entry.route);
     }
     for (const child of node.children.values()) {
       this.collectRoutes(child, routes);
     }
     if (node.paramChild) {
-      this.collectRoutes(node.paramChild.node, routes);
+      this.collectRoutes(node.paramChild, routes);
     }
     if (node.wildcardChild) {
-      this.collectRoutes(node.wildcardChild.node, routes);
+      this.collectRoutes(node.wildcardChild, routes);
     }
   }
 }

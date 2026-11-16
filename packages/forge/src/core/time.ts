@@ -39,7 +39,7 @@ export class ForgeDate {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false,
+      hourCycle: 'h23',
     }).formatToParts(this._date);
 
     const map: Record<string, string> = {};
@@ -94,6 +94,39 @@ export function now(timezone?: string): ForgeDate {
  */
 export function today(timezone?: string): ForgeDate {
   const d = new ForgeDate(undefined, timezone);
-  const dateStr = d.toDateString();
-  return new ForgeDate(`${dateStr} 00:00:00`, timezone);
+  const tz = d.getTimezone();
+  const [year, month, day] = d.toDateString().split('-').map(Number);
+  return new ForgeDate(zonedMidnightToUtc(year, month, day, tz), tz);
+}
+
+/**
+ * Resolve the UTC instant at which the given calendar date starts (00:00:00)
+ * in an IANA timezone, independent of the process's own local timezone.
+ */
+function zonedMidnightToUtc(year: number, month: number, day: number, timezone: string): Date {
+  const wallClockAsUtc = Date.UTC(year, month - 1, day, 0, 0, 0);
+
+  const offsetAt = (instant: number): number => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(instant));
+    const map: Record<string, number> = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = Number(p.value);
+    }
+    const asUtc = Date.UTC(map.year, map.month - 1, map.day, map.hour, map.minute, map.second);
+    return asUtc - instant;
+  };
+
+  // Two passes settle the offset across DST transitions
+  let instant = wallClockAsUtc - offsetAt(wallClockAsUtc);
+  instant = wallClockAsUtc - offsetAt(instant);
+  return new Date(instant);
 }

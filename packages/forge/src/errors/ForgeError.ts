@@ -10,6 +10,8 @@ export interface ForgeErrorOptions {
   code?: string;
   details?: unknown;
   statusCode?: number;
+  /** Extra HTTP response headers to send with the error (e.g. Allow, Retry-After). */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -20,6 +22,7 @@ export class ForgeError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
   public readonly details?: unknown;
+  public readonly headers?: Record<string, string>;
   override readonly cause?: unknown;
 
   constructor(
@@ -39,7 +42,7 @@ export class ForgeError extends Error {
     } else {
       message = statusCodeOrMessage;
       if (messageOrOptions && typeof messageOrOptions === 'object') {
-        if ('statusCode' in messageOrOptions || 'code' in messageOrOptions || 'details' in messageOrOptions || 'cause' in messageOrOptions) {
+        if ('statusCode' in messageOrOptions || 'code' in messageOrOptions || 'details' in messageOrOptions || 'cause' in messageOrOptions || 'headers' in messageOrOptions) {
           opts = messageOrOptions as ForgeErrorOptions;
         } else {
           opts = { cause: messageOrOptions };
@@ -54,6 +57,7 @@ export class ForgeError extends Error {
     this.statusCode = opts.statusCode ?? 500;
     this.code = opts.code ?? 'ERR_FORGE_INTERNAL';
     this.details = opts.details;
+    this.headers = opts.headers;
     if (opts.cause !== undefined) {
       this.cause = opts.cause;
     }
@@ -72,6 +76,7 @@ export class HttpError extends ForgeError {
       code: options?.code ?? `ERR_HTTP_${statusCode}`,
       details: options?.details,
       cause: options?.cause,
+      headers: options?.headers,
     });
   }
 }

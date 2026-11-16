@@ -5,7 +5,7 @@
 // and process lifecycle management.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from '../harness.js';
 import { DevSupervisor } from '../../bin/dev.js';
 
 describe('DevSupervisor — Source File Filter & Watch Logic', () => {

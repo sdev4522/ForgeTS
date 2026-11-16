@@ -4,7 +4,7 @@
 // Validates all 22 required error failure scenarios, contracts, and security.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from '../harness.js';
 import path from 'node:path';
 import {
   ForgeError,
@@ -249,7 +249,7 @@ describe('ForgeTS Error Infrastructure & Failure Experience', () => {
 
     // Environment tab
     expect(html).toContain('Environment');
-    expect(html).toContain('Bun');
+    expect(html).toContain('Node.js');
   });
 
   // ─── 10. JSON Development Response ───

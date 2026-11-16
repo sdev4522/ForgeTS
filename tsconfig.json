@@ -54,7 +54,7 @@
       "@/*": ["./resources/js/*"]
     },
     "baseUrl": ".",
-    "types": ["bun-types", "vite/client"]
+    "types": ["node", "vite/client"]
   },
   "include": [
     "app/**/*",

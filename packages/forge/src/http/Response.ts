@@ -1,7 +1,7 @@
 // packages/forge/src/http/Response.ts
 // ─────────────────────────────────────────────────────────────────────
 // Unified HTTP Response builder.
-// Chainable, immutable-style API. Returns a Bun-native Response at the end.
+// Chainable, immutable-style API. Returns a Fetch-API Response at the end.
 //
 // PERFORMANCE: No intermediate buffering. We build the final Response
 // object directly. Headers are stored in a plain object until finalized.
@@ -11,8 +11,19 @@ import type { ViewEngine } from '../view/ViewEngine.js';
 import type { ReactEngine } from '../ssr/ReactEngine.js';
 import { serializeViewData } from './serializer.js';
 
+/** Escape a value for safe interpolation into HTML text or attribute values. */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export interface CookieOptions {
   maxAge?: number;
+  expires?: Date;
   domain?: string;
   path?: string;
   httpOnly?: boolean;
@@ -157,7 +168,7 @@ export class ForgeResponse {
 
       const token = (normalizedData['_csrfToken'] || normalizedData['csrf_token'] || (this as any)._csrfToken || '') as string;
       const csrfField = token
-        ? `<input type="hidden" name="_token" value="${token}">`
+        ? `<input type="hidden" name="_token" value="${escapeHtml(token)}">`
         : '';
 
       const viewData = serializeViewData({
@@ -189,29 +200,37 @@ export class ForgeResponse {
     if (typeof this._body === 'string') {
       let body = this._body;
 
+      // Values are HTML-escaped, and inserted through replacer functions so
+      // `$&`-style patterns in the content are never interpreted.
+      const insertBeforeHeadEnd = (tag: string) => {
+        body = body.replace('</head>', () => `  ${tag}\n</head>`);
+      };
+
       if (metadata.title) {
-        body = body.replace(/<title>.*?<\/title>/i, `<title>${metadata.title}</title>`);
+        const titleTag = `<title>${escapeHtml(metadata.title)}</title>`;
+        if (/<title>[\s\S]*?<\/title>/i.test(body)) {
+          body = body.replace(/<title>[\s\S]*?<\/title>/i, () => titleTag);
+        } else {
+          insertBeforeHeadEnd(titleTag);
+        }
       }
 
       if (metadata.description) {
+        const descTag = `<meta name="description" content="${escapeHtml(metadata.description)}">`;
         if (/<meta\s+name="description"/i.test(body)) {
-          body = body.replace(
-            /<meta\s+name="description"[^>]*>/i,
-            `<meta name="description" content="${metadata.description}">`,
-          );
+          body = body.replace(/<meta\s+name="description"[^>]*>/i, () => descTag);
         } else {
-          body = body.replace(
-            '</head>',
-            `  <meta name="description" content="${metadata.description}">\n</head>`,
-          );
+          insertBeforeHeadEnd(descTag);
         }
       }
 
       for (const [key, value] of Object.entries(metadata)) {
         if (key === 'title' || key === 'description') continue;
-        const metaTag = `<meta name="${key}" content="${value}">`;
+        // Open Graph tags use the `property` attribute
+        const attr = key.startsWith('og:') ? 'property' : 'name';
+        const metaTag = `<meta ${attr}="${escapeHtml(key)}" content="${escapeHtml(value)}">`;
         if (!body.includes(metaTag)) {
-          body = body.replace('</head>', `  ${metaTag}\n</head>`);
+          insertBeforeHeadEnd(metaTag);
         }
       }
 
@@ -232,6 +251,7 @@ export class ForgeResponse {
   noContent(): this {
     this._status = 204;
     this._body = null;
+    delete this._headers['content-type'];
     return this;
   }
 
@@ -299,9 +319,12 @@ export class ForgeResponse {
   /** Set a cookie. */
   cookie(name: string, value: string, options: CookieOptions = {}): this {
     let cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
-    if (options.maxAge !== undefined) cookie += `; Max-Age=${options.maxAge}`;
-    if (options.domain) cookie += `; Domain=${options.domain}`;
-    if (options.path) cookie += `; Path=${options.path}`;
+    // Attribute values must not be able to smuggle extra attributes or headers
+    const attr = (value: string) => value.replace(/[;\r\n]/g, '');
+    if (options.maxAge !== undefined) cookie += `; Max-Age=${Math.trunc(options.maxAge)}`;
+    if (options.expires instanceof Date) cookie += `; Expires=${options.expires.toUTCString()}`;
+    if (options.domain) cookie += `; Domain=${attr(options.domain)}`;
+    if (options.path) cookie += `; Path=${attr(options.path)}`;
     if (options.httpOnly) cookie += '; HttpOnly';
     if (options.secure) cookie += '; Secure';
     if (options.sameSite) cookie += `; SameSite=${options.sameSite}`;
@@ -331,15 +354,36 @@ export class ForgeResponse {
     }
 
     const defaultStatus = this._headers['location'] ? 302 : 200;
-    const finalStatus = normalizeHttpStatus(this._status, defaultStatus);
+    let finalStatus = normalizeHttpStatus(this._status, defaultStatus);
+    // 101 cannot be produced through the Fetch Response constructor
+    if (finalStatus === 101) finalStatus = defaultStatus;
 
-    return new globalThis.Response(this._body, {
+    // Statuses that must not carry a body
+    const body = finalStatus === 204 || finalStatus === 205 || finalStatus === 304 ? null : this._body;
+
+    return new globalThis.Response(body, {
       status: finalStatus,
       headers,
     });
   }
 
   // ─── Static Factory ───
+
+  /**
+   * Adapt a native Fetch Response returned by a controller.
+   * Preserves status, body, all headers, and every Set-Cookie value.
+   */
+  static fromNative(native: globalThis.Response): ForgeResponse {
+    const res = new ForgeResponse();
+    res._status = normalizeHttpStatus(native.status, 200);
+    native.headers.forEach((value, key) => {
+      if (key.toLowerCase() === 'set-cookie') return;
+      res._headers[key.toLowerCase()] = value;
+    });
+    res._cookies.push(...native.headers.getSetCookie());
+    res._body = native.body;
+    return res;
+  }
 
   /** Create a quick JSON response (shorthand for new ForgeResponse().json(data)). */
   static json(data: unknown, status: number = 200): ForgeResponse {

@@ -16,33 +16,57 @@
  * 5. SSR props and client hydration payloads remain 100% deterministic and aligned.
  */
 export function serializeViewData<T = any>(value: unknown): T {
+  return serialize(value, new WeakSet(), 0) as T;
+}
+
+const MAX_DEPTH = 100;
+
+function serialize(value: unknown, ancestors: WeakSet<object>, depth: number): unknown {
   if (value === null || value === undefined) {
-    return value as unknown as T;
+    return value;
   }
 
-  // If value provides a custom toJSON method (e.g. Model, ForgeDate), unwrap it first
-  if (typeof (value as any).toJSON === 'function') {
-    return serializeViewData((value as any).toJSON());
+  if (typeof value !== 'object') {
+    // Functions, symbols and bigints cannot cross the JSON hydration boundary
+    if (typeof value === 'function' || typeof value === 'symbol') return undefined;
+    if (typeof value === 'bigint') return value.toString();
+    return value;
   }
 
-  // Handle arrays recursively
-  if (Array.isArray(value)) {
-    return value.map((item) => serializeViewData(item)) as unknown as T;
+  // Circular references and runaway nesting would otherwise overflow the stack
+  if (ancestors.has(value) || depth > MAX_DEPTH) {
+    return '[Circular]';
   }
+  ancestors.add(value);
 
-  // Handle objects recursively
-  if (typeof value === 'object') {
-    // Non-plain objects that shouldn't be traversed
+  try {
+    // If value provides a custom toJSON method (e.g. Model, ForgeDate, Date), unwrap it first
+    if (typeof (value as any).toJSON === 'function') {
+      const unwrapped = (value as any).toJSON();
+      return unwrapped === value ? '[Circular]' : serialize(unwrapped, ancestors, depth + 1);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => serialize(item, ancestors, depth + 1));
+    }
+
     if (value instanceof RegExp) {
-      return value as unknown as T;
+      return value;
+    }
+    if (value instanceof Map) {
+      return serialize(Object.fromEntries(value), ancestors, depth + 1);
+    }
+    if (value instanceof Set) {
+      return serialize([...value], ancestors, depth + 1);
     }
 
     const result: Record<string, any> = {};
     for (const [key, val] of Object.entries(value)) {
-      result[key] = serializeViewData(val);
+      result[key] = serialize(val, ancestors, depth + 1);
     }
-    return result as T;
+    return result;
+  } finally {
+    // Only true cycles are flagged; the same object may appear in sibling branches
+    ancestors.delete(value);
   }
-
-  return value as unknown as T;
 }

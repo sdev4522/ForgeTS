@@ -33,11 +33,48 @@ export class Redactor {
     'undefined',
   ]);
 
+  // Matches whole keys (`key`, `auth`, `pin`) and any key CONTAINING a sensitive
+  // word in snake_case, kebab-case or camelCase: user_password, newPassword,
+  // accessToken, apiKey, client-secret, cardNumber …
   private static readonly SENSITIVE_KEY_PATTERN =
-    /^(password|password_confirmation|secret|token|access_token|refresh_token|api_key|authorization|credit_card|card_number|cvv|key|auth|credential|private_key|client_secret|signing_key)$/i;
+    /^(key|auth|pin|otp|cvv|cvc|ssn|_token)$|pass(word|wd|phrase)?|secret|token|api[_-]?key|authorization|credential|private[_-]?key|signing[_-]?key|credit[_-]?card|card[_-]?number|security[_-]?code/i;
 
   private static readonly SENSITIVE_HEADER_PATTERN =
-    /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|token|access-token|refresh-token|x-csrf-token|x-xsrf-token|csrf-token|secret|password|auth)$/i;
+    /^(cookie|set-cookie|auth|key)$|authorization|token|secret|password|api-?key|credential|signature|session/i;
+
+  // Environment variable NAMES whose values are secrets. Deliberately excludes
+  // broad words like DB / API / DATABASE: values such as DB_USERNAME=root or
+  // DB_DATABASE=app are not secrets, and redacting them mangled unrelated text.
+  // Connection strings are covered by URI_CREDENTIALS_REGEX instead.
+  private static readonly SECRET_ENV_NAME_PATTERN =
+    /SECRET|PASS|KEY|TOKEN|AUTH|CREDENTIAL|PRIVATE|CERT|DSN|SIGNING|SALT/i;
+
+  private static envSecretsCache: { stamp: string; values: string[] } | null = null;
+
+  /**
+   * Secret values currently present in process.env, longest first.
+   * Cached and rebuilt only when the environment's secret entries change.
+   */
+  private static envSecrets(): string[] {
+    const values: string[] = [];
+    let stamp = '';
+
+    for (const key in process.env) {
+      if (!this.SECRET_ENV_NAME_PATTERN.test(key)) continue;
+      if (key.startsWith('npm_') || key.startsWith('NODE_') || key.startsWith('XDG_')) continue;
+      const val = process.env[key];
+      if (!val) continue;
+      const trimmed = val.trim();
+      if (trimmed.length < 4 || this.SAFE_WHITELIST.has(trimmed)) continue;
+      values.push(trimmed);
+      stamp += `${key}=${trimmed.length}:${trimmed}\u0000`;
+    }
+
+    if (this.envSecretsCache?.stamp === stamp) return this.envSecretsCache.values;
+    values.sort((a, b) => b.length - a.length);
+    this.envSecretsCache = { stamp, values };
+    return values;
+  }
 
   private static readonly URI_CREDENTIALS_REGEX =
     /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^:@\s]+):([^@\s]+)@/g;
@@ -57,35 +94,17 @@ export class Redactor {
 
     // 2. Redact sensitive query parameters in URLs (e.g. ?token=secret&key=123)
     result = result.replace(
-      /([?&](?:token|key|password|secret|auth|access_token|api_key)=)([^&#\s]+)/gi,
+      /([?&][\w.-]*(?:token|key|password|passwd|secret|auth|signature|credential)[\w.-]*=)([^&#\s]+)/gi,
       '$1[REDACTED]',
     );
 
     // 3. Redact Bearer tokens in string (ignore English word 'token' as in 'Missing bearer token')
     result = result.replace(/(Bearer\s+)(?!token\b)[a-zA-Z0-9._~+/-]+=*/gi, '$1[REDACTED]');
 
-    // 4. Scan process.env secret values
-    for (const [key, val] of Object.entries(process.env)) {
-      if (!val || typeof val !== 'string') continue;
-      const trimmedVal = val.trim();
-      if (trimmedVal.length < 4 || this.SAFE_WHITELIST.has(trimmedVal)) continue;
-
-      const isSystemVar =
-        /^(HOME|PWD|PATH|SHELL|USER|LOGNAME|TERM|SHLVL|_|OLDPWD|EDITOR|VISUAL|BROWSER|LANG|COLORTERM|TZ)$/i.test(key) ||
-        key.startsWith('XDG_') ||
-        key.startsWith('BUN_') ||
-        key.startsWith('NODE_') ||
-        key.startsWith('npm_');
-
-      if (isSystemVar) continue;
-
-      const isSecretKey =
-        /SECRET|PASS|KEY|TOKEN|DB|AUTH|CREDENTIAL|PRIVATE|CERT|DATABASE|MONGO|MYSQL|REDIS|DSN|SIGNING|API/i.test(key);
-
-      if (isSecretKey && trimmedVal.length >= 4) {
-        if (result.includes(trimmedVal)) {
-          result = result.replaceAll(trimmedVal, '[REDACTED]');
-        }
+    // 4. Redact known secret values from process.env
+    for (const secret of this.envSecrets()) {
+      if (result.includes(secret)) {
+        result = result.replaceAll(secret, '[REDACTED]');
       }
     }
 
@@ -150,6 +169,8 @@ export class Redactor {
       const sanitized: Record<string, unknown> = {};
 
       for (const [key, val] of Object.entries(data)) {
+        // Arrays under a sensitive key are kept: validation error bags are keyed by
+        // field name (`password: ['The password field is required.']`).
         if (this.SENSITIVE_KEY_PATTERN.test(key) && !Array.isArray(val)) {
           sanitized[key] = '[REDACTED]';
         } else {

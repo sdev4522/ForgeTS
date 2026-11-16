@@ -4,16 +4,10 @@
 // Provides declarative rule validation for HTTP requests.
 // ─────────────────────────────────────────────────────────────────────
 
-export class ValidationError extends Error {
-  public readonly statusCode = 422;
-  public readonly errors: Record<string, string[]>;
+import { ValidationError } from '../errors/ForgeError.js';
 
-  constructor(errors: Record<string, string[]>) {
-    super('The given data was invalid.');
-    this.name = 'ValidationError';
-    this.errors = errors;
-  }
-}
+// Single framework-wide validation error class (HTTP 422).
+export { ValidationError };
 
 export type ValidationRules = Record<string, string>;
 
@@ -25,17 +19,20 @@ export class Validator {
    */
   static validate<T = Record<string, any>>(data: unknown, rules: ValidationRules): T {
     const input = data && typeof data === 'object' ? (data as Record<string, any>) : {};
+    const own = (key: string) => (Object.hasOwn(input, key) ? input[key] : undefined);
     const errors: Record<string, string[]> = {};
     const validatedData: Record<string, any> = {};
 
     for (const [field, ruleString] of Object.entries(rules)) {
-      const value = input[field];
+      const value = own(field);
       const pipeRules = ruleString
         .split('|')
         .map((r) => r.trim())
         .filter(Boolean);
 
       const isRequired = pipeRules.includes('required');
+      // `numeric` fields compare min/max by value, even when submitted as form strings
+      const isNumericField = pipeRules.includes('numeric');
 
       // Check required rule first
       if (value === undefined || value === null || value === '') {
@@ -75,25 +72,27 @@ export class Validator {
           }
         } else if (rule.startsWith('min:')) {
           const minVal = parseFloat(rule.slice(4));
-          if (typeof value === 'number') {
-            if (value < minVal) {
-              this.addError(errors, field, `The ${field} must be at least ${minVal}.`);
-            }
-          } else if (typeof value === 'string' || Array.isArray(value)) {
-            if (value.length < minVal) {
-              this.addError(errors, field, `The ${field} must be at least ${minVal} characters.`);
-            }
+          const size = this.sizeOf(value, isNumericField);
+          if (size !== null && size.value < minVal) {
+            this.addError(
+              errors,
+              field,
+              size.numeric
+                ? `The ${field} must be at least ${minVal}.`
+                : `The ${field} must be at least ${minVal} characters.`,
+            );
           }
         } else if (rule.startsWith('max:')) {
           const maxVal = parseFloat(rule.slice(4));
-          if (typeof value === 'number') {
-            if (value > maxVal) {
-              this.addError(errors, field, `The ${field} may not be greater than ${maxVal}.`);
-            }
-          } else if (typeof value === 'string' || Array.isArray(value)) {
-            if (value.length < maxVal) {
-              this.addError(errors, field, `The ${field} may not be greater than ${maxVal} characters.`);
-            }
+          const size = this.sizeOf(value, isNumericField);
+          if (size !== null && size.value > maxVal) {
+            this.addError(
+              errors,
+              field,
+              size.numeric
+                ? `The ${field} may not be greater than ${maxVal}.`
+                : `The ${field} may not be greater than ${maxVal} characters.`,
+            );
           }
         }
       }
@@ -109,6 +108,25 @@ export class Validator {
     }
 
     return validatedData as T;
+  }
+
+  /**
+   * Resolve the comparable size of a value for min/max rules:
+   * numbers (and numeric-rule strings) by value, strings/arrays by length.
+   */
+  private static sizeOf(
+    value: unknown,
+    numericField: boolean,
+  ): { value: number; numeric: boolean } | null {
+    if (typeof value === 'number') return { value, numeric: true };
+    if (numericField && typeof value === 'string' && value.trim() !== '') {
+      const num = Number(value);
+      if (!Number.isNaN(num)) return { value: num, numeric: true };
+    }
+    if (typeof value === 'string' || Array.isArray(value)) {
+      return { value: value.length, numeric: false };
+    }
+    return null;
   }
 
   private static addError(errors: Record<string, string[]>, field: string, message: string): void {

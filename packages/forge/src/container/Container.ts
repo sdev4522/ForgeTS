@@ -15,11 +15,13 @@ export type Factory<T = any> = () => T;
 export type Token<T = any> = Constructor<T> | string | symbol;
 
 import { BindingResolutionException } from '../errors/index.js';
+import { INJECTABLE_META } from './decorators.js';
 
 interface Binding<T = any> {
   factory: Factory<T>;
   lifetime: 'singleton' | 'transient';
   instance?: T; // Cached instance for singletons
+  resolved?: boolean; // True once the singleton factory has run
 }
 
 export class Container {
@@ -62,6 +64,7 @@ export class Container {
       factory: () => value,
       lifetime: 'singleton',
       instance: value,
+      resolved: true,
     });
   }
 
@@ -82,7 +85,14 @@ export class Container {
     if (!binding) {
       // If the token is a constructor, try auto-binding it as transient
       if (typeof token === 'function') {
+        // Honour @Injectable({ lifetime: 'singleton' }) on auto-resolved classes
+        const meta = (token as any)[Symbol.metadata]?.[INJECTABLE_META] as
+          | { lifetime?: 'singleton' | 'transient' }
+          | undefined;
         const instance = new token();
+        if (meta?.lifetime === 'singleton') {
+          this.instance(token, instance);
+        }
         return instance;
       }
 
@@ -90,8 +100,9 @@ export class Container {
     }
 
     if (binding.lifetime === 'singleton') {
-      if (binding.instance === undefined) {
+      if (!binding.resolved) {
         binding.instance = binding.factory();
+        binding.resolved = true;
       }
       return binding.instance as T;
     }
@@ -121,9 +132,10 @@ export class Container {
    */
   createChild(): Container {
     const child = new Container();
-    // Copy parent bindings (shallow — singletons are shared)
+    // Share the parent's binding records, so a singleton is created once and
+    // seen by both containers. Re-binding in the child replaces only its own entry.
     for (const [token, binding] of this.bindings) {
-      child.bindings.set(token, { ...binding });
+      child.bindings.set(token, binding);
     }
     return child;
   }

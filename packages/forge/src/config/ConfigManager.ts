@@ -7,41 +7,14 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { parseEnv } from './bootstrapEnv.js';
 
 /**
- * Parse a .env file into key-value pairs.
- * Minimal parser — handles `KEY=VALUE`, `KEY="VALUE"`, `KEY='VALUE'`,
- * comments (#), and empty lines. No dependency on `dotenv`.
+ * Parse a .env file into key-value pairs (shared parser, no `dotenv` dependency).
  */
 function parseDotEnv(filePath: string): Record<string, string> {
   if (!existsSync(filePath)) return {};
-
-  const result: Record<string, string> = {};
-  const content = readFileSync(filePath, 'utf-8');
-
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    // Skip empty lines and comments
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex === -1) continue;
-
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-
-    // Strip surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    result[key] = value;
-  }
-
-  return result;
+  return parseEnv(readFileSync(filePath, 'utf-8'));
 }
 
 export class ConfigManager {

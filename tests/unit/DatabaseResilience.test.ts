@@ -1,5 +1,5 @@
 // tests/unit/DatabaseResilience.test.ts
-import { describe, test, expect, beforeAll, afterEach } from 'bun:test';
+import { describe, test, expect, beforeAll, afterEach } from '../harness.js';
 import { verifyDatabaseConnectionOnBoot, resetDatabaseConnection } from '../../packages/forge/src/database/Connection.js';
 import app from '../../bootstrap/app.js';
 import { initConfig } from '../../packages/forge/src/config/ConfigManager.js';

@@ -1,11 +1,12 @@
 // app/controllers/WelcomeController.ts
 // ─────────────────────────────────────────────────────────────────────
 // Welcome page controller.
-// HTTP request handler only — delegates rendering to resources/views/welcome.html
+// HTTP request handler only — delegates rendering to resources/js/pages.
 // ─────────────────────────────────────────────────────────────────────
 
-import { Controller, Get, Request, ForgeResponse } from '@forge/core';
-import packageJson from '../../package.json';
+import { Controller, Get, Post, Request, ForgeResponse, Hash } from '@forge/core';
+import packageJson from '../../package.json' with { type: 'json' };
+import { User } from '@/models/User.js';
 
 /**
  * Controller responsible for the initial framework landing experience.
@@ -31,8 +32,36 @@ export class WelcomeController {
       version: packageJson.version || '0.1.0',
       uptime,
       heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
-      runtime: `Bun ${typeof Bun !== 'undefined' ? Bun.version : 'Node'}`,
+      runtime: `Node.js ${process.version}`,
       environment: process.env.NODE_ENV || 'development',
     });
+  }
+
+  @Get('/about')
+  async about(_req: Request, res: ForgeResponse) {
+    return res.view('abouts/index');
+  }
+
+  @Get('/user')
+  async user(_req: Request, res: ForgeResponse) {
+    return res.view('user/index');
+  }
+
+  @Post('/user')
+  async storeUser(req: Request, res: ForgeResponse) {
+    const data = await req.validate<{ name: string; email: string; password: string }>({
+      name: 'required|string|max:255',
+      email: 'required|email|max:255',
+      password: 'required|string|min:8',
+    });
+
+    const user = await User.create({
+      name: data.name,
+      email: data.email,
+      password: await Hash.make(data.password),
+    });
+
+    // `password` is listed in User.hidden, so the hash is not serialized
+    return res.created(user);
   }
 }

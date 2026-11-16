@@ -28,8 +28,17 @@ export abstract class Model {
   /** Guarded attributes denied from mass-assignment (deny-list). */
   static guarded?: string[];
 
+  /** Attributes excluded from toJSON() / API output (e.g. ['password']). */
+  static hidden?: string[];
+
   /** Internal attributes storage */
   public _attributes: Record<string, any> = {};
+
+  /** Eager-loaded relations (never persisted as columns). */
+  public _relations: Record<string, any> = {};
+
+  /** True once this instance corresponds to a row/document in the database. */
+  public _exists = false;
 
   /**
    * Instantiate an Active Record model.
@@ -54,14 +63,25 @@ export abstract class Model {
         ) {
           return Reflect.get(target, prop, target);
         }
-        if (typeof prop === 'string' && prop in target._attributes) {
+        if (typeof prop === 'string' && Object.hasOwn(target._relations, prop)) {
+          return target._relations[prop];
+        }
+        if (typeof prop === 'string' && Object.hasOwn(target._attributes, prop)) {
           return target._attributes[prop];
         }
         return Reflect.get(target, prop, target);
       },
       set(target: any, prop: string | symbol, value: any) {
         if (typeof prop === 'string' && !prop.startsWith('_')) {
-          if (value === undefined && target._attributes[prop] !== undefined) {
+          // Class field declarations (`name!: string`) initialize to undefined after
+          // construction; they must neither clobber hydrated values nor create
+          // phantom attributes.
+          if (value === undefined) {
+            return true;
+          }
+          // Assigning to a loaded relation replaces the relation, not a column
+          if (Object.hasOwn(target._relations, prop)) {
+            target._relations[prop] = value;
             return true;
           }
           target._attributes[prop] = value;
@@ -70,7 +90,7 @@ export abstract class Model {
         return Reflect.set(target, prop, value, target);
       },
       has(target: any, prop: string | symbol) {
-        if (typeof prop === 'string' && prop in target._attributes) {
+        if (typeof prop === 'string' && Object.hasOwn(target._attributes, prop)) {
           return true;
         }
         return Reflect.has(target, prop);
@@ -83,7 +103,7 @@ export abstract class Model {
         return Array.from(new Set([...targetKeys, ...attributeKeys]));
       },
       getOwnPropertyDescriptor(target: any, prop: string | symbol) {
-        if (typeof prop === 'string' && prop in target._attributes) {
+        if (typeof prop === 'string' && Object.hasOwn(target._attributes, prop)) {
           return {
             value: target._attributes[prop],
             writable: true,
@@ -101,8 +121,11 @@ export abstract class Model {
    */
   static getTable(): string {
     if (this.table) return this.table;
-    const name = this.name.toLowerCase();
-    return name.endsWith('s') ? name : `${name}s`;
+    // UserProfile -> user_profiles, Category -> categories, Box -> boxes
+    const snake = this.name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+    if (/[^aeiou]y$/.test(snake)) return `${snake.slice(0, -1)}ies`;
+    if (/(s|x|z|ch|sh)$/.test(snake)) return snake.endsWith('s') ? snake : `${snake}es`;
+    return `${snake}s`;
   }
 
   /**
@@ -116,16 +139,22 @@ export abstract class Model {
    * Filter data attributes against model fillable / guarded mass-assignment rules.
    * - If fillable is set, only keys in fillable are allowed.
    * - Else if guarded is set, keys in guarded are denied (['*'] denies all).
-   * - Else (neither set), defaults to safe default: guarded = ['id', 'created_at', 'updated_at', 'deleted_at'].
+   * - Else (neither set), a default deny-list applies: id, created_at, updated_at, deleted_at.
+   *
+   * With the default deny-list (no `fillable` / `guarded` declared) and with
+   * `fillable`, the primary key and Mongo `_id` are only mass-assignable when
+   * listed explicitly: request input must not be able to choose which record a
+   * save() writes to. An explicit `guarded` list is honoured exactly as written
+   * (`guarded = []` allows everything). Rows loaded from the database go
+   * through hydrate(), which bypasses these rules.
    */
   static filterMassAssignment(data: Record<string, any>): Record<string, any> {
     const result: Record<string, any> = {};
+    if (!data || typeof data !== 'object') return result;
 
     if (Array.isArray(this.fillable)) {
-      // Fillable allow-list takes precedence (primaryKey & _id always preserved for database hydration)
-      const allowedKeys = new Set([...this.fillable, this.getPrimaryKey(), '_id']);
-      for (const key of allowedKeys) {
-        if (key in data && data[key] !== undefined) {
+      for (const key of this.fillable) {
+        if (Object.hasOwn(data, key) && data[key] !== undefined) {
           result[key] = data[key];
         }
       }
@@ -140,10 +169,16 @@ export abstract class Model {
       return {};
     }
 
+    const identityKeys = Array.isArray(this.guarded)
+      ? new Set<string>()
+      : new Set([this.getPrimaryKey(), '_id']);
+
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined && !guardedList.includes(key)) {
-        result[key] = val;
-      }
+      if (val === undefined) continue;
+      if (identityKeys.has(key) || guardedList.includes(key)) continue;
+      // Internal slots and prototype keys are never attributes
+      if (key.startsWith('_') || key === 'constructor') continue;
+      result[key] = val;
     }
 
     return result;
@@ -162,6 +197,39 @@ export abstract class Model {
         this._attributes[key] = value;
       }
     }
+    return this;
+  }
+
+  /**
+   * Set attributes directly, bypassing fillable / guarded rules.
+   * For trusted, server-side values only — never pass request input.
+   */
+  forceFill(attributes: Record<string, any>): this {
+    for (const [key, value] of Object.entries(attributes)) {
+      if (value !== undefined) {
+        this._attributes[key] = value;
+      }
+    }
+    return this;
+  }
+
+  /** Raw attribute map (including hidden attributes). */
+  getAttributes(): Record<string, any> {
+    const res: Record<string, any> = {};
+    for (const [key, val] of Object.entries(this._attributes)) {
+      if (val !== undefined) res[key] = val;
+    }
+    return res;
+  }
+
+  /** Get a loaded relation by name. */
+  getRelation<T = any>(name: string): T | undefined {
+    return this._relations[name];
+  }
+
+  /** Attach a loaded relation without marking it as a column. */
+  setRelation(name: string, value: unknown): this {
+    this._relations[name] = value;
     return this;
   }
 
@@ -190,6 +258,7 @@ export abstract class Model {
         instance._attributes[k] = v;
       }
     }
+    instance._exists = true;
     return instance;
   }
 
@@ -215,7 +284,9 @@ export abstract class Model {
   static where<T extends typeof Model>(this: T, column: string, op: string, value: unknown): QueryBuilder<T>;
   static where<T extends typeof Model>(this: T, column: string, opOrVal: unknown, value?: unknown): QueryBuilder<T> {
     const qb = new QueryBuilder(this);
-    return qb.where(column, opOrVal as any, value);
+    return arguments.length >= 3
+      ? qb.where(column, opOrVal as string, value)
+      : qb.where(column, opOrVal);
   }
 
   static async create<T extends typeof Model>(this: T, data: Record<string, any>): Promise<InstanceType<T>> {
@@ -231,13 +302,17 @@ export abstract class Model {
 
   /**
    * Save the current model instance to the database (INSERT or UPDATE).
+   *
+   * Instances loaded from the database (or already saved) are UPDATEd; new
+   * instances are INSERTed — including new instances with a preset primary key
+   * (UUIDs, natural keys). The decision never depends on request-supplied data.
    */
   async save(): Promise<this> {
     const ctor = this.constructor as typeof Model;
     const table = ctor.getTable();
     const pk = ctor.getPrimaryKey();
 
-    const data: Record<string, any> = { ...this.toJSON() };
+    const data: Record<string, any> = this.getAttributes();
     const isMongo = ctor.connection === 'mongodb';
 
     if (ctor.timestamps) {
@@ -268,36 +343,50 @@ export abstract class Model {
     }
 
     const currentPkValue = this._attributes[pk];
+    const hasPk = currentPkValue !== undefined && currentPkValue !== null;
 
     if (isMongo) {
       const mongo = getMongoDriver();
-      if (currentPkValue !== undefined && currentPkValue !== null) {
-        const updated = await mongo.update(table, currentPkValue, data);
-        if (updated) this.fill(updated);
+      const documentId = hasPk ? currentPkValue : this._attributes['_id'];
+      if (this._exists && documentId !== undefined && documentId !== null) {
+        const updated = await mongo.update(table, documentId, data);
+        if (updated) this.forceFill(updated);
       } else {
         const created = await mongo.create(table, data);
-        if (created) this.fill(created);
+        if (created) this.forceFill(created);
       }
+      this._exists = true;
     } else {
       const db = getDatabaseConnection();
       const driver = ctor.connection || 'mysql';
       const serializedData = serializeModelAttributes(data, driver);
 
-      if (currentPkValue !== undefined && currentPkValue !== null) {
-        // UPDATE
-        await db
-          .updateTable(table)
-          .set(serializedData)
-          .where(pk, '=', currentPkValue)
-          .execute();
-      } else {
-        // INSERT
-        delete serializedData[pk];
-        const result = await db.insertInto(table).values(serializedData).executeTakeFirst();
-        if (result && result.insertId !== undefined) {
-          const insertedId = Number(result.insertId);
-          this._attributes[pk] = insertedId;
+      if (this._exists) {
+        if (!hasPk) {
+          throw new Error(
+            `[ForgeTS] Cannot update ${ctor.name}: primary key '${pk}' is missing on a persisted instance.`,
+          );
         }
+        // UPDATE — the primary key identifies the row and is never rewritten
+        delete serializedData[pk];
+        if (Object.keys(serializedData).length > 0) {
+          await db
+            .updateTable(table)
+            .set(serializedData)
+            .where(pk, '=', currentPkValue)
+            .execute();
+        }
+      } else {
+        // INSERT — keep an explicitly assigned primary key (UUIDs / natural keys)
+        if (!hasPk) delete serializedData[pk];
+        const result = await db.insertInto(table).values(serializedData).executeTakeFirst();
+        if (!hasPk && result && result.insertId !== undefined && result.insertId !== null) {
+          const raw = result.insertId;
+          const numeric = Number(raw);
+          // Keep 64-bit ids exact instead of silently rounding them
+          this._attributes[pk] = Number.isSafeInteger(numeric) ? numeric : String(raw);
+        }
+        this._exists = true;
       }
     }
 
@@ -311,28 +400,38 @@ export abstract class Model {
     const ctor = this.constructor as typeof Model;
     const table = ctor.getTable();
     const pk = ctor.getPrimaryKey();
-    const pkValue = this._attributes[pk];
+    const isMongo = ctor.connection === 'mongodb';
+    const pkValue = this._attributes[pk] ?? (isMongo ? this._attributes['_id'] : undefined);
 
     if (pkValue === undefined || pkValue === null) {
       throw new Error(`[ForgeTS] Cannot delete unsaved model instance.`);
     }
 
-    if (ctor.connection === 'mongodb') {
+    if (isMongo) {
       const mongo = getMongoDriver();
       await mongo.delete(table, pkValue);
     } else {
       const db = getDatabaseConnection();
       await db.deleteFrom(table).where(pk, '=', pkValue).execute();
     }
+    this._exists = false;
   }
 
   /**
    * Convert model to plain object for JSON serialization.
+   * Attributes listed in `static hidden` are omitted; loaded relations are included.
    */
   toJSON(): Record<string, any> {
+    const ctor = this.constructor as typeof Model;
+    const hidden = Array.isArray(ctor.hidden) ? ctor.hidden : [];
     const res: Record<string, any> = {};
     for (const [key, val] of Object.entries(this._attributes)) {
-      if (val !== undefined) {
+      if (val !== undefined && !hidden.includes(key)) {
+        res[key] = val;
+      }
+    }
+    for (const [key, val] of Object.entries(this._relations)) {
+      if (val !== undefined && !hidden.includes(key)) {
         res[key] = val;
       }
     }

@@ -22,7 +22,7 @@ export function env(key: string, defaultValue: string = ''): string {
  */
 env.number = (key: string, defaultValue: number = 0): number => {
   const raw = process.env[key];
-  if (raw === undefined) return defaultValue;
+  if (raw === undefined || raw.trim() === '') return defaultValue;
   const parsed = Number(raw);
   return Number.isNaN(parsed) ? defaultValue : parsed;
 };

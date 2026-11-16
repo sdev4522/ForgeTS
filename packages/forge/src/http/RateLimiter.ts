@@ -1,6 +1,6 @@
 // packages/forge/src/http/RateLimiter.ts
 // ─────────────────────────────────────────────────────────────────────
-// In-memory sliding-window Rate Limiter (Laravel Throttle / RateLimiter equivalent).
+// In-memory fixed-window Rate Limiter (Laravel Throttle / RateLimiter equivalent).
 // Provides RateLimiter.attempt(), RateLimitMiddleware, and @RateLimit() decorator.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,27 @@ export interface RateLimitResult {
 
 export class RateLimiter {
   private static hits: Map<string, { count: number; resetAt: number }> = new Map();
+  private static lastSweep = 0;
+
+  /** Upper bound on tracked keys; expired entries are swept before it is reached. */
+  static MAX_KEYS = 100_000;
+
+  /** Drop expired windows so the map cannot grow without bound. */
+  private static sweep(now: number): void {
+    if (now - this.lastSweep < 30_000 && this.hits.size < this.MAX_KEYS) return;
+    this.lastSweep = now;
+    for (const [key, entry] of this.hits) {
+      if (now >= entry.resetAt) this.hits.delete(key);
+    }
+    // Still full of live windows: evict the oldest insertions
+    if (this.hits.size >= this.MAX_KEYS) {
+      let excess = this.hits.size - this.MAX_KEYS + 1;
+      for (const key of this.hits.keys()) {
+        if (excess-- <= 0) break;
+        this.hits.delete(key);
+      }
+    }
+  }
 
   /**
    * Attempt an action against a rate limit window.
@@ -25,6 +46,7 @@ export class RateLimiter {
   static attempt(key: string, maxAttempts: number, windowSeconds: number): RateLimitResult {
     const now = Date.now();
     const windowMs = windowSeconds * 1000;
+    this.sweep(now);
     let entry = this.hits.get(key);
 
     if (!entry || now >= entry.resetAt) {
@@ -72,8 +94,10 @@ export function createRateLimitMiddleware(
 ): new () => IMiddleware {
   return class RateLimitMiddleware implements IMiddleware {
     async handle(req: Request, next: NextFunction): Promise<ForgeResponse> {
-      const clientIp = req.header('x-forwarded-for') || req.header('cf-connecting-ip') || '127.0.0.1';
-      const key = `${clientIp}:${req.path}`;
+      // req.ip() is the socket address; forwarding headers only count behind a trusted proxy.
+      // Keyed by the route PATTERN so `/items/1`, `/items/2`, … share one bucket.
+      const routeKey = req.route ? `${req.route.method} ${req.route.fullPath}` : `${req.method} ${req.path}`;
+      const key = `${req.ip()}|${routeKey}`;
 
       const res = RateLimiter.attempt(key, maxAttempts, windowSeconds);
 
@@ -83,6 +107,7 @@ export function createRateLimitMiddleware(
           .header('Retry-After', String(res.resetInSeconds))
           .header('X-RateLimit-Limit', String(res.limit))
           .header('X-RateLimit-Remaining', '0')
+          .header('X-RateLimit-Reset', String(res.resetInSeconds))
           .json({
             error: 'Too Many Requests',
             message: `Too many requests. Please try again in ${res.resetInSeconds} seconds.`,

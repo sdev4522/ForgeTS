@@ -49,14 +49,26 @@ export interface NormalizedError {
   details?: unknown;
 }
 
+export interface NormalizeOptions {
+  /**
+   * Collect developer diagnostics: parsed stack frames, source snippets, cause
+   * chain, and compiler diagnostics. Disable outside debug mode, where none of
+   * it is rendered, to keep error responses cheap (no stack parsing, no file I/O).
+   * Defaults to true.
+   */
+  diagnostics?: boolean;
+}
+
+const KNOWN_DATABASE_PORTS = new Set([3306, 33060, 27017, 5432]);
+
 export class ErrorNormalizer {
   /**
    * Safely normalize any error or thrown value into a NormalizedError.
    * Guaranteed to NEVER throw an exception itself.
    */
-  static normalize(error: unknown): NormalizedError {
+  static normalize(error: unknown, options: NormalizeOptions = {}): NormalizedError {
     try {
-      return this.doNormalize(error);
+      return this.doNormalize(error, options.diagnostics !== false);
     } catch (normalizationError) {
       // Fail-safe fallback if error object has hostile throwing getters
       let safeMsg = 'An unexpected error occurred';
@@ -84,7 +96,7 @@ export class ErrorNormalizer {
     }
   }
 
-  private static doNormalize(error: unknown): NormalizedError {
+  private static doNormalize(error: unknown, withDiagnostics: boolean): NormalizedError {
     // 1. Convert primitive or hostile throws to Error
     let err: Error;
     if (error instanceof Error) {
@@ -138,20 +150,23 @@ export class ErrorNormalizer {
       statusCode = 422;
       code = 'ERR_VALIDATION_FAILED';
     } else {
-      // Check database connection / network failures
+      // Check database connection failures.
+      // Generic socket errors (ECONNREFUSED, ETIMEDOUT, ENOTFOUND) are only treated
+      // as a database outage when they demonstrably come from a database driver —
+      // a failed call to some third-party HTTP API must not be reported as one.
       const errCode = (error as any)?.code;
       const errName = (error as any)?.name;
+      const isSocketFailure =
+        errCode === 'ECONNREFUSED' || errCode === 'ETIMEDOUT' || errCode === 'ENOTFOUND';
       const isDbConnectionFailure =
-        errCode === 'ECONNREFUSED' ||
-        errCode === 'ETIMEDOUT' ||
-        errCode === 'ENOTFOUND' ||
         errCode === 'ER_ACCESS_DENIED_ERROR' ||
+        errCode === 'PROTOCOL_CONNECTION_LOST' ||
         errName === 'MongoNetworkError' ||
         errName === 'MongoServerSelectionError' ||
-        rawMessage.includes('ECONNREFUSED') ||
         rawMessage.includes('MongoConnectionFailure') ||
         rawMessage.includes('[ForgeTS Mongo Connection Failure]') ||
-        rawMessage.includes('[ForgeTS Database Error]');
+        rawMessage.includes('[ForgeTS Database Error]') ||
+        (isSocketFailure && this.looksLikeDatabaseError(error, rawStack));
 
       if (isDbConnectionFailure) {
         statusCode = 503;
@@ -168,7 +183,27 @@ export class ErrorNormalizer {
       }
     }
 
-    // 4. Extract compiler and build diagnostics (Bun BuildMessage, AggregateError, Vite)
+    // 8. Extract details if available (e.g. validation errors, query info)
+    const rawDetails = (error as any)?.details ?? (error as any)?.errors ?? undefined;
+    const details = rawDetails ? Redactor.sanitizeData(rawDetails) : undefined;
+
+    if (!withDiagnostics) {
+      return {
+        raw: error,
+        type,
+        code,
+        message,
+        statusCode,
+        rawStack,
+        stack: Redactor.redactString(rawStack),
+        stackFrames: [],
+        causes: [],
+        diagnostics: [],
+        details,
+      };
+    }
+
+    // 4. Extract compiler and build diagnostics (BuildMessage, AggregateError, Vite)
     const diagnostics = this.extractDiagnostics(err);
 
     // 5. Parse stack frames
@@ -215,23 +250,32 @@ export class ErrorNormalizer {
     // 7. Extract nested cause chain safely
     const causes = this.extractCauses(err);
 
-    // 8. Extract details if available (e.g. validation errors, query info)
-    const details = (error as any)?.details ?? (error as any)?.errors ?? undefined;
-
     return {
       raw: error,
       type,
       code,
       message,
       statusCode,
+      rawStack,
       stack: Redactor.redactString(rawStack),
       stackFrames,
       primaryFrame,
       primarySnippet,
       causes,
       diagnostics,
-      details: details ? Redactor.sanitizeData(details) : undefined,
+      details,
     };
+  }
+
+  /**
+   * Decide whether a socket-level failure originated from a database driver.
+   */
+  private static looksLikeDatabaseError(error: unknown, rawStack: string): boolean {
+    const e = error as any;
+    if (e?.fatal === true || e?.sqlState !== undefined || e?.sqlMessage !== undefined) return true;
+    const port = Number(e?.port);
+    if (Number.isInteger(port) && KNOWN_DATABASE_PORTS.has(port)) return true;
+    return /mysql2?|mongodb|kysely|[\\/]pg[\\/]/i.test(rawStack);
   }
 
   private static deriveCode(statusCode: number, typeName: string, explicitCode?: string): string {

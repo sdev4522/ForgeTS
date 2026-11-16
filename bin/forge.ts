@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S npx tsx
 // bin/forge.ts
 // ─────────────────────────────────────────────────────────────────────
 // ForgeTS CLI Scaffolding Tool (artisan equivalent).
@@ -6,12 +6,22 @@
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
 const command = args[0];
 const targetName = args[1];
 
 const ROOT_DIR = process.cwd();
+
+// Scaffold names become file paths and identifiers: allow simple names only
+if (command?.startsWith('make:') && targetName !== undefined && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(targetName)) {
+  console.error(
+    `[ForgeTS CLI] Error: Invalid name '${targetName}'. Use letters, digits, '-' and '_' only, starting with a letter.`,
+  );
+  process.exit(1);
+}
 
 function ensureDir(dirPath: string) {
   if (!existsSync(dirPath)) {
@@ -143,12 +153,16 @@ async function runCommand() {
   switch (command) {
     case 'dev':
     case 'serve': {
-      const proc = Bun.spawn([process.execPath, 'run', 'bin/serve.ts'], {
-        stdout: 'inherit',
-        stderr: 'inherit',
-        stdin: 'inherit',
+      // Same Node binary and loader flags (tsx) as this CLI process
+      const proc = spawn(process.execPath, [...process.execArgv, join(ROOT_DIR, 'bin', 'serve.ts')], {
+        stdio: 'inherit',
+        cwd: ROOT_DIR,
       });
-      await proc.exited;
+      const forward = (signal: NodeJS.Signals) => () => proc.kill(signal);
+      process.on('SIGINT', forward('SIGINT'));
+      process.on('SIGTERM', forward('SIGTERM'));
+      const code = await new Promise<number>((done) => proc.once('exit', (c) => done(c ?? 0)));
+      process.exitCode = code;
       break;
     }
 
@@ -217,9 +231,15 @@ export class ${className} {
 export class ${className} extends Model {
   static override table = '${tableName}';
 
-  @Column() declare id: number;
-  @Column() declare created_at: string;
-  @Column() declare updated_at: string;
+  /** Attributes that may be mass-assigned from request input. */
+  static override fillable: string[] = [];
+
+  /** Attributes omitted from JSON output (e.g. 'password'). */
+  static override hidden: string[] = [];
+
+  @Column() id!: number;
+  @Column() created_at!: string;
+  @Column() updated_at!: string;
 }
 `;
       createFile(filePath, template, 'Model');
@@ -622,7 +642,7 @@ export default function ${singularPascal}Page() {
     }
 
     case 'routes:list': {
-      const appModule = await import(join(ROOT_DIR, 'bootstrap', 'app.js'));
+      const appModule = await import(pathToFileURL(join(ROOT_DIR, 'bootstrap', 'app.ts')).href);
       const app = appModule.default;
       const routes = app.getRoutes();
 
@@ -638,6 +658,7 @@ export default function ${singularPascal}Page() {
         console.log(`  │ ${type} │ ${method} │ ${path} │ ${handler} │`);
       }
       console.log('  └──────┴────────┴───────────────────────────────┴──────────────────────────────┘\n');
+      await app.stop();
       break;
     }
 
@@ -659,8 +680,14 @@ export default function ${singularPascal}Page() {
       break;
     }
 
-    case 'config:clear':
     case 'config:cache': {
+      // Configuration is evaluated from config/*.ts at boot; there is no cache
+      // file to build. (Previously this command silently DELETED the cache.)
+      console.log('[ForgeTS CLI] Nothing to cache: configuration is loaded directly from config/*.ts at boot.');
+      break;
+    }
+
+    case 'config:clear': {
       const configCache = join(ROOT_DIR, 'storage', 'framework', 'config.json');
       if (existsSync(configCache)) {
         unlinkSync(configCache);
@@ -685,7 +712,7 @@ export default function ${singularPascal}Page() {
 ForgeTS CLI Scaffolding Tool v0.8.0
 
 Available Commands:
-  forge serve                            Start dev server with Bun hot reload
+  forge serve                            Start dev server with auto-restart
   forge make:controller <ControllerName> Scaffold an HTTP controller [--api]
   forge make:model <ModelName>           Scaffold an Active Record model [--migration]
   forge make:page <PageName> [--crud]    Scaffold React page(s) + full CRUD flow

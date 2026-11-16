@@ -4,7 +4,7 @@
 // Verifies source code file blocking & valid route responses.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, expect, test, beforeAll } from 'bun:test';
+import { describe, expect, test, beforeAll } from '../harness.js';
 import app from '../../bootstrap/app.js';
 import { getDatabaseConnection } from '@forge/database';
 

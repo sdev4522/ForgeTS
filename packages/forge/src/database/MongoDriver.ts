@@ -46,7 +46,7 @@ export class MongoDriver implements DatabaseDriver {
       this.client = null;
       this.db = null;
       throw new Error(
-        `[ForgeTS Mongo Connection Failure] Failed to connect to MongoDB at '${this.config.uri}' (Database: '${this.config.database}'): ${err.message}`
+        `[ForgeTS Mongo Connection Failure] Failed to connect to MongoDB at '${this.config.uri.replace(/\/\/([^:@\/]+):([^@\/]+)@/, '//$1:[REDACTED]@')}' (Database: '${this.config.database}'): ${err.message}`
       );
     }
   }
@@ -68,11 +68,26 @@ export class MongoDriver implements DatabaseDriver {
     return this.db;
   }
 
-  private parseId(id: string | number): any {
-    if (typeof id === 'string' && ObjectId.isValid(id) && id.length === 24) {
+  private parseId(id: unknown): any {
+    if (typeof id === 'string' && id.length === 24 && ObjectId.isValid(id)) {
       return new ObjectId(id);
     }
     return id;
+  }
+
+  /** Convert an application-level id into the value stored in `_id`. */
+  toDocumentId(id: unknown): any {
+    return this.parseId(id);
+  }
+
+  /** Match a document by `_id`, or by a legacy `id` field for scalar ids. */
+  private idFilter(id: unknown): Record<string, any> {
+    const parsedId = this.parseId(id);
+    if (id !== null && typeof id === 'object') {
+      // ObjectId instance (or other BSON value): match `_id` only
+      return { _id: parsedId };
+    }
+    return { $or: [{ _id: parsedId }, { id }] };
   }
 
   private normalizeDoc(doc: any): any {
@@ -86,10 +101,7 @@ export class MongoDriver implements DatabaseDriver {
 
   async find(collectionName: string, id: string | number): Promise<any | null> {
     await this.connect();
-    const parsedId = this.parseId(id);
-    const filter = {
-      $or: [{ _id: parsedId }, { id: id }],
-    };
+    const filter = this.idFilter(id);
 
     const doc = await this.getDb().collection(collectionName).findOne(filter);
     return this.normalizeDoc(doc);
@@ -135,8 +147,7 @@ export class MongoDriver implements DatabaseDriver {
 
   async update(collectionName: string, id: string | number, data: Record<string, any>): Promise<any> {
     await this.connect();
-    const parsedId = this.parseId(id);
-    const filter = { $or: [{ _id: parsedId }, { id: id }] };
+    const filter = this.idFilter(id);
 
     const updateData = { ...data };
     delete updateData._id;
@@ -149,8 +160,7 @@ export class MongoDriver implements DatabaseDriver {
 
   async delete(collectionName: string, id: string | number): Promise<boolean> {
     await this.connect();
-    const parsedId = this.parseId(id);
-    const filter = { $or: [{ _id: parsedId }, { id: id }] };
+    const filter = this.idFilter(id);
 
     const result = await this.getDb().collection(collectionName).deleteOne(filter);
     return result.deletedCount > 0;

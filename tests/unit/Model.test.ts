@@ -1,5 +1,5 @@
 // tests/unit/Model.test.ts
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeAll } from '../harness.js';
 import {
   Kysely,
   DummyDriver,

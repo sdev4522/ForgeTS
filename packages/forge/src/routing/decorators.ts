@@ -34,9 +34,13 @@ export interface ControllerMeta {
 
 // ─── Helper to ensure metadata arrays exist ───
 
+// A subclass's metadata object inherits from its parent's through the prototype
+// chain. Always write to an OWN copy so a child controller never mutates the
+// route / middleware lists of the class it extends.
 function getOrCreateArray<T>(metadata: DecoratorMetadataObject, key: symbol): T[] {
-  if (!metadata[key]) {
-    metadata[key] = [] as T[];
+  if (!Object.hasOwn(metadata, key)) {
+    const inherited = metadata[key] as T[] | undefined;
+    metadata[key] = inherited ? [...inherited] : ([] as T[]);
   }
   return metadata[key] as T[];
 }
@@ -63,9 +67,7 @@ export function Controller(prefix: string = '') {
     context.metadata[CONTROLLER_META] = { prefix: cleanPrefix } satisfies ControllerMeta;
 
     // Initialize routes array if method decorators haven't already
-    if (!context.metadata[ROUTES_META]) {
-      context.metadata[ROUTES_META] = [];
-    }
+    getOrCreateArray<RouteDefinition>(context.metadata, ROUTES_META);
   };
 }
 
@@ -78,6 +80,9 @@ function createMethodDecorator(method: HttpMethod) {
       const normalizedPath = path && !path.startsWith('/') ? `/${path}` : path;
 
       const routes = getOrCreateArray<RouteDefinition>(context.metadata, ROUTES_META);
+      if (routes.some((r) => r.handlerName === context.name && r.method === method && r.path === normalizedPath)) {
+        return;
+      }
       routes.push({
         method,
         path: normalizedPath,
@@ -143,12 +148,19 @@ export function Middleware(...middleware: MiddlewareClass[]) {
       existing.push(...middleware);
     } else if (context.kind === 'method') {
       // Method-level middleware — keyed by method name
-      if (!context.metadata[METHOD_MIDDLEWARE_META]) {
-        context.metadata[METHOD_MIDDLEWARE_META] = {};
+      if (!Object.hasOwn(context.metadata, METHOD_MIDDLEWARE_META)) {
+        const inherited = context.metadata[METHOD_MIDDLEWARE_META] as
+          | Record<string | symbol, MiddlewareClass[]>
+          | undefined;
+        const own: Record<string | symbol, MiddlewareClass[]> = {};
+        if (inherited) {
+          for (const k of Reflect.ownKeys(inherited)) own[k] = [...inherited[k]];
+        }
+        context.metadata[METHOD_MIDDLEWARE_META] = own;
       }
       const map = context.metadata[METHOD_MIDDLEWARE_META] as Record<string | symbol, MiddlewareClass[]>;
       const key = context.name;
-      if (!map[key]) {
+      if (!Object.hasOwn(map, key)) {
         map[key] = [];
       }
       map[key].push(...middleware);

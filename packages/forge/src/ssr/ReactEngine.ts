@@ -7,7 +7,9 @@
 import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { escapeHtml } from '../http/Response.js';
 import { getViteDevServer } from './ViteDevServer.js';
 import { serializeViewData } from '../http/serializer.js';
 import { ViewNotFoundException } from '../errors/index.js';
@@ -18,6 +20,8 @@ export class ReactEngine {
   private appHtmlPath: string;
   private clientManifest: Record<string, any> | null = null;
   private ssrModule: any = null;
+  private appHtmlCache: string | null = null;
+  private pagePathCache: Map<string, string | null> = new Map();
 
   constructor(rootDir: string) {
     this.rootDir = rootDir;
@@ -36,6 +40,17 @@ export class ReactEngine {
    * Resolve page file path.
    */
   resolvePagePath(name: string): string | null {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && this.pagePathCache.has(name)) {
+      return this.pagePathCache.get(name) ?? null;
+    }
+    const found = this.findPagePath(name);
+    if (isProduction) this.pagePathCache.set(name, found);
+    return found;
+  }
+
+  private findPagePath(name: string): string | null {
+    const pagesRoot = resolve(this.pagesDir);
     const cleanName = name.replace(/^pages\//, '');
     const candidates = [
       join(this.pagesDir, `${cleanName}.tsx`),
@@ -48,6 +63,8 @@ export class ReactEngine {
 
     for (const path of candidates) {
       const resolved = resolve(path);
+      // Page names must never escape resources/js/pages
+      if (!resolved.startsWith(pagesRoot + sep)) continue;
       if (existsSync(resolved)) {
         return resolved;
       }
@@ -80,6 +97,18 @@ export class ReactEngine {
   }
 
   /**
+   * Load the HTML shell (resources/views/app.html). Cached in production.
+   */
+  private loadAppHtml(): string | null {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && this.appHtmlCache !== null) return this.appHtmlCache;
+    if (!existsSync(this.appHtmlPath)) return null;
+    const html = readFileSync(this.appHtmlPath, 'utf-8');
+    if (isProduction) this.appHtmlCache = html;
+    return html;
+  }
+
+  /**
    * Render a React page component to an HTML document string with SSR markup.
    *
    * Architectural Design:
@@ -102,7 +131,7 @@ export class ReactEngine {
       if (!this.ssrModule) {
         const ssrPath = join(this.rootDir, 'dist', 'server', 'entry-server.js');
         if (existsSync(ssrPath)) {
-          this.ssrModule = await import(ssrPath);
+          this.ssrModule = await import(pathToFileURL(ssrPath).href);
         }
       }
 
@@ -111,7 +140,7 @@ export class ReactEngine {
       } else {
         const pagePath = this.resolvePagePath(name);
         if (!pagePath) throw new ViewNotFoundException(name, this.pagesDir);
-        const mod = await import(pagePath);
+        const mod = await import(pathToFileURL(pagePath).href);
         const PageComponent = mod.default || mod[Object.keys(mod)[0]];
         bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, safeProps));
       }
@@ -143,29 +172,42 @@ export class ReactEngine {
 
       let PageComponent: React.ComponentType<any>;
       const vite = await getViteDevServer();
-      if (vite) {
-        const relPath = pagePath.replace(this.rootDir, '');
-        const mod = await vite.ssrLoadModule(relPath);
-        PageComponent = mod.default || mod[Object.keys(mod)[0]];
-      } else {
-        const mod = await import(pagePath);
-        PageComponent = mod.default || mod[Object.keys(mod)[0]];
-      }
+      try {
+        if (vite) {
+          const relPath = pagePath.startsWith(this.rootDir) ? pagePath.slice(this.rootDir.length) : pagePath;
+          const mod = await vite.ssrLoadModule(relPath);
+          PageComponent = mod.default || mod[Object.keys(mod)[0]];
+        } else {
+          const mod = await import(pathToFileURL(pagePath).href);
+          PageComponent = mod.default || mod[Object.keys(mod)[0]];
+        }
 
-      if (!PageComponent) {
-        throw new Error(`[ForgeTS React SSR] Page '${name}' has no default export.`);
-      }
+        if (!PageComponent) {
+          throw new Error(`[ForgeTS React SSR] Page '${name}' has no default export.`);
+        }
 
-      bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, safeProps));
+        bodyHtml = ReactDOMServer.renderToString(React.createElement(PageComponent, safeProps));
+      } catch (err) {
+        // Map Vite-transformed stack frames back to original source lines
+        if (vite && err instanceof Error) {
+          try {
+            vite.ssrFixStacktrace(err);
+          } catch {}
+        }
+        throw err;
+      }
     }
 
-    const title = safeProps.title || 'ForgeTS — React SSR';
+    const title = escapeHtml(safeProps.title || 'ForgeTS — React SSR');
     const cleanPageName = name.replace(/^pages\//, '');
     const initialPayload = {
       page: cleanPageName,
       props: safeProps,
     };
-    const jsonPayload = JSON.stringify(initialPayload).replace(/</g, '\\u003c');
+    const jsonPayload = JSON.stringify(initialPayload)
+      .replace(/</g, '\\u003c')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
 
     const vitePreamble = process.env.NODE_ENV !== 'production'
       ? `<script type="module">
@@ -177,23 +219,32 @@ export class ReactEngine {
 </script>`
       : '';
 
-    if (existsSync(this.appHtmlPath)) {
-      let template = readFileSync(this.appHtmlPath, 'utf-8');
-      template = template.replace('<!-- FORGETS_TITLE -->', title);
-      template = template.replace('<!-- FORGETS_APP -->', bodyHtml);
-      template = template.replace('<!-- FORGETS_DATA -->', jsonPayload);
+    const shell = this.loadAppHtml();
+    if (shell !== null) {
+      // Structural edits run first, on the pristine shell. Content is inserted last
+      // and through replacer functions, so `$&`-style sequences in rendered markup
+      // or props are never interpreted as replacement patterns.
+      let template = shell;
       if (preloadTag) {
-        template = template.replace('</head>', `${preloadTag}\n</head>`);
+        template = template.replace('</head>', () => `${preloadTag}\n</head>`);
       }
       if (vitePreamble) {
         template = template.replace(
           '<script type="module" src="/resources/js/entry-client.tsx"></script>',
-          `${vitePreamble}\n  <script type="module" src="${clientScriptSrc}"></script>`
+          () => `${vitePreamble}\n  <script type="module" src="${clientScriptSrc}"></script>`,
         );
       } else {
-        template = template.replace('/resources/js/entry-client.tsx', clientScriptSrc);
+        template = template.replace('/resources/js/entry-client.tsx', () => clientScriptSrc);
       }
-      return template;
+      const slots: Record<string, string> = {
+        '<!-- FORGETS_TITLE -->': title,
+        '<!-- FORGETS_APP -->': bodyHtml,
+        '<!-- FORGETS_DATA -->': jsonPayload,
+      };
+      return template.replace(
+        /<!-- FORGETS_(?:TITLE|APP|DATA) -->/g,
+        (marker) => slots[marker] ?? marker,
+      );
     }
 
     return `<!DOCTYPE html>

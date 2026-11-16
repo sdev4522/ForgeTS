@@ -3,7 +3,7 @@
 // Unit tests for hardened env.boolean environment parsing.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from '../harness.js';
 import { env } from '../../packages/forge/src/config/env.js';
 
 describe('env.boolean — Environment Variable Boolean Parser', () => {

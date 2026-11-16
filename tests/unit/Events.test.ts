@@ -4,7 +4,7 @@
 // Uses generic, neutral test events and listeners.
 // ─────────────────────────────────────────────────────────────────────
 
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach } from '../harness.js';
 import {
   EventDispatcher,
   events,

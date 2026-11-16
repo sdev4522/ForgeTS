@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect } from '../harness.js';
 import '../../bootstrap/app.js';
 import { User } from '../../app/models/User.js';
 import { getDatabaseConnection } from '../../packages/forge/src/database/Connection.js';
