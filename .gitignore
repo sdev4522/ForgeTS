@@ -39,3 +39,4 @@ tests/.tmp-*/
 # ─── Local AI agent / tooling data ───
 .agents/
 .codegraph/
+Docs/

@@ -11,7 +11,7 @@
 
 **ForgeTS** is an open-source MVC framework for building web apps and REST APIs in TypeScript. It gives you an Active Record ORM (MySQL and MongoDB), React 19 server-side rendering, routing with standard TC39 decorators, dependency injection, validation, CSRF protection, rate limiting, database migrations and a `forge` CLI in one package. If you know Laravel, Rails or AdonisJS, ForgeTS will feel familiar; it runs directly on `node:http` without Express or Koa.
 
-**Contents:** [Highlights](#key-highlights) · [Quick Start](#quick-start) · [Usage](#core-framework-usage) · [CLI](#cli-reference) · [Short Syntax](#the-short-syntax) · [Migrations](#database-migrations) · [Docs](#documentation-directory)
+**Contents:** [Highlights](#key-highlights) · [Quick Start](#quick-start) · [Usage](#core-framework-usage) · [CLI](#cli-reference) · [Short Syntax](#the-short-syntax) · [Migrations](#database-migrations)
 
 ---
 
@@ -466,29 +466,10 @@ npm run start
 
 ---
 
-## Documentation Directory
-
-Detailed architectural guides and documentation are available in the `Docs/` directory:
-
-- [Error Infrastructure & Diagnostics Subsystem](Docs/ERROR_HANDLING.md)
-- [Active Record ORM Guide](Docs/ORM.md)
-- [React 19 Server-Side Rendering Guide](Docs/REACT_SSR.md)
-- [HTTP, Controllers, Routing & Security Guide](Docs/HTTP_ROUTING.md)
-- [Canonical End-to-End CRUD Walkthrough](Docs/CRUD_WALKTHROUGH.md)
-- [System Architecture Report](Docs/architecture_report.md)
-- [System Design Specification](Docs/DESIGN.md)
-- [Product Requirements Document (PRD)](Docs/PRD.md)
-- [Framework Memory & Conventions](Docs/MEMORY.md)
-- [Task Register & Milestone Log](Docs/TASK.md)
-- [Project Overview & Architectural Decisions](Docs/PROJECT.md)
-- [Mandatory Engineering Rules](Docs/RULES.md)
-
----
-
 ## Engineering Standards
 
 ForgeTS enforces strict engineering standards:
-- **Zero Emojis**: Prohibited in all source code, technical documentation, CLI output, logs, and error messages (see `Docs/RULES.md` Rule 8).
+- **Zero Emojis**: Prohibited in all source code, technical documentation, CLI output, logs, and error messages.
 - **Clean Architecture**: Complete separation of framework core engine (`packages/forge/src/`) and application domain (`app/`).
 - **Standard Decorators**: Pure ECMAScript TC39 Stage 3 decorator compliance using `context.metadata`.
 
