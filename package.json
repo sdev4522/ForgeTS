@@ -2,6 +2,38 @@
   "name": "forge-ts",
   "version": "0.8.0",
   "description": "A batteries-included, TypeScript-first web framework — Laravel DX for the JS ecosystem, built for speed.",
+  "keywords": [
+    "typescript",
+    "nodejs",
+    "web-framework",
+    "framework",
+    "full-stack",
+    "mvc",
+    "laravel",
+    "active-record",
+    "orm",
+    "react",
+    "ssr",
+    "server-side-rendering",
+    "decorators",
+    "dependency-injection",
+    "kysely",
+    "mysql",
+    "mongodb",
+    "rest-api",
+    "backend",
+    "forgets"
+  ],
+  "license": "MIT",
+  "author": "sdev4522",
+  "homepage": "https://github.com/sdev4522/ForgeTS#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sdev4522/ForgeTS.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sdev4522/ForgeTS/issues"
+  },
   "type": "module",
   "scripts": {
     "serve": "tsx bin/serve.ts",

@@ -1,7 +1,17 @@
-# ForgeTS
+# ForgeTS: TypeScript Web Framework for Node.js
 
-> **Batteries-included, TypeScript-first web framework running on Node.js.**  
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js >= 24.7](https://img.shields.io/badge/node-%3E%3D24.7-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![React 19 SSR](https://img.shields.io/badge/React-19%20SSR-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![GitHub stars](https://img.shields.io/github/stars/sdev4522/ForgeTS?style=social)](https://github.com/sdev4522/ForgeTS)
+
+> **Batteries-included, TypeScript-first full-stack web framework for Node.js.**  
 > *Laravel's developer experience meets JavaScript's raw speed.*
+
+**ForgeTS** is an open-source MVC framework for building web apps and REST APIs in TypeScript. It gives you an Active Record ORM (MySQL and MongoDB), React 19 server-side rendering, routing with standard TC39 decorators, dependency injection, validation, CSRF protection, rate limiting, database migrations and a `forge` CLI in one package. If you know Laravel, Rails or AdonisJS, ForgeTS will feel familiar; it runs directly on `node:http` without Express or Koa.
+
+**Contents:** [Highlights](#key-highlights) · [Quick Start](#quick-start) · [Usage](#core-framework-usage) · [CLI](#cli-reference) · [Short Syntax](#the-short-syntax) · [Migrations](#database-migrations) · [Docs](#documentation-directory)
 
 ---
 
@@ -69,6 +79,8 @@ ForgeTS/
 Ensure you have [Node.js](https://nodejs.org) 24.7 or newer installed (TypeScript runs through `tsx`, no build step in development):
 
 ```bash
+git clone https://github.com/sdev4522/ForgeTS.git
+cd ForgeTS
 npm install
 ```
 
@@ -484,4 +496,6 @@ ForgeTS enforces strict engineering standards:
 
 ## License
 
-MIT License. Designed and built for high-performance TypeScript development on Node.js.
+ForgeTS is open source under the [MIT License](LICENSE). Designed and built for high-performance TypeScript development on Node.js.
+
+If ForgeTS is useful to you, a star on [GitHub](https://github.com/sdev4522/ForgeTS) helps other developers find it.
